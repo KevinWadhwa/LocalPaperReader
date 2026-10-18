@@ -62,6 +62,8 @@ def main():
     p.add_argument("--max_new_tokens", type=int, default=512)
     p.add_argument("--batch_size", type=int, default=64)
     p.add_argument("--seed", type=int, default=12345)
+    p.add_argument("--stop_mixed", type=float, default=0.1)
+    p.add_argument("--stop_window", type=int, default=10)   # 0 turns early stopping off
     args = p.parse_args()
 
     torch.manual_seed(0)

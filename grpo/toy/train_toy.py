@@ -33,6 +33,10 @@ def parse_args():
     p.add_argument("--eval_n", type=int, default=100)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", default="runs/toy_grpo")
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--out", default="runs/toy_grpo")
+    p.add_argument("--stop_mixed", type=float, default=0.1) 
+    p.add_argument("--stop_window", type=int, default=10)     
     return p.parse_args()
 
 def load_model(args):
@@ -93,6 +97,8 @@ def main():
 
     log_row(log, {"step": 0, **evaluate(model, tok, eval_problems, args)})
 
+    recent_mixed = []                                                    # NEW
+
     for step in range(1, args.steps + 1):
         t0 = time.time()
         problems = [make_problem(rng, args.difficulty) for _ in range(args.questions)]
@@ -102,11 +108,22 @@ def main():
         row["seconds"] = time.time() - t0
         row["gpu_mem_gb"] = torch.cuda.max_memory_allocated() / 1e9
 
-        if step % args.eval_every == 0:
+        #stopping logic
+        recent_mixed.append(row["mixed_groups"])
+        window = recent_mixed[-args.stop_window:]
+        stop = (args.stop_window > 0 and len(window) == args.stop_window
+                and sum(window) / len(window) < args.stop_mixed)
+
+        if step % args.eval_every == 0 or stop:                         # CHANGED: "or stop"
             row.update(evaluate(model, tok, eval_problems, args))
             model.save_pretrained(os.path.join(args.out, "lora"))
 
         log_row(log, row)
+
+        if stop:                                                         # NEW
+            print(f"early stop at step {step}: mean mixed_groups over last "
+                  f"{args.stop_window} steps < {args.stop_mixed}", flush=True)
+            break
 
     model.save_pretrained(os.path.join(args.out, "lora"))
     log.close()
