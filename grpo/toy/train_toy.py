@@ -33,8 +33,6 @@ def parse_args():
     p.add_argument("--eval_n", type=int, default=100)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", default="runs/toy_grpo")
-    p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--out", default="runs/toy_grpo")
     p.add_argument("--stop_mixed", type=float, default=0.1) 
     p.add_argument("--stop_window", type=int, default=10)     
     return p.parse_args()
