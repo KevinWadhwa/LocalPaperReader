@@ -54,6 +54,7 @@ def run(tok, model, problems, k, sample, temperature, max_new_tokens, batch_size
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--model", default="Qwen/Qwen2.5-0.5B-Instruct")
+    p.add_argument("--adapter", default=None)
     p.add_argument("--difficulty", type=int, default=3)
     p.add_argument("--n", type=int, default=200)
     p.add_argument("--k", type=int, default=8)
@@ -65,6 +66,10 @@ def main():
 
     torch.manual_seed(0)
     tok, model = load_model(args.model)
+    if args.adapter:
+        from peft import PeftModel
+        model = PeftModel.from_pretrained(model, args.adapter)
+        model.eval()
     problems = make_dataset(args.seed, args.n, args.difficulty)
     answers = [a for _, a in problems]
 
@@ -95,7 +100,7 @@ def main():
         "truncated_rate": 1 - sum(s_fin) / len(s_fin),
     }
     for key, val in results.items():
-        if key != "config":
+        if isinstance(val, float):
             print(f"{key:22s} {val:.3f}")
 
     kinds = {
@@ -110,6 +115,7 @@ def main():
                 break
 
     os.makedirs("runs", exist_ok=True)
+    tag = "_trained" if args.adapter else ""
     path = f"runs/eval_base_d{args.difficulty}.json"
     with open(path, "w") as f:
         json.dump(results, f, indent=2)
