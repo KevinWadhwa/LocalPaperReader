@@ -1,7 +1,7 @@
 import torch
 
 from core.rollout import rollout
-from core.logprobs import token_logprobs
+from core.logps import token_logprobs
 from core.grpo import group_advantages, grpo_loss
 
 
@@ -18,7 +18,7 @@ def grpo_step(model, tok, optimizer, problems, format_prompt, reward_fn, cfg):
     batch = rollout(model, tok, problems, cfg.k, format_prompt, reward_fn,
                     cfg.temperature, cfg.max_new_tokens)
     seqs, amask = batch["sequences"], batch["attention_mask"]
-    cmask, P = batch["completion_mask"], batch["prompt_len"]
+    cmask, P = batch["comp_mask"], batch["prompt_len"]
 
     # 2. One advantage per answer
     adv = group_advantages(batch["rewards"]).to(seqs.device)

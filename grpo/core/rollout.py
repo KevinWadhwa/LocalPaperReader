@@ -38,7 +38,7 @@ def sample_comp(model, tok, prompts, k, temperature=1.0, max_new_tokens=512):
     return {
         "sequences": out,
         "prompt_len": prompt_len,
-        "completion_mask": completion_mask,
+        "comp_mask": comp_mask,
         "attention_mask": attention_mask,
         "texts": texts,
     }

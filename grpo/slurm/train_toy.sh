@@ -12,5 +12,6 @@ export MAMBA_ROOT_PREFIX=/scratch_hive/$USER/micromamba-root
 eval "$(/scratch_hive/$USER/micromamba-bin/bin/micromamba shell hook -s bash)"
 micromamba activate localpaperreader
 
+export HF_HUB_OFFLINE=1
 cd /scratch_hive/kw1525/LocalPaperReader/grpo
-PYTHONPATH=. python code/train_toy.py --out runs/toy_grpo_v1
+PYTHONPATH=. python toy/train_toy.py --out runs/toy_grpo_v1
