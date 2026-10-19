@@ -16,7 +16,9 @@ def grpo_loss(logp_new, logp_old, logp_ref, adv, mask, eps_clip=0.2, beta=0.04):
     surrogate = torch.min(ratio * A, torch.clamp(ratio, 1 - eps_clip, 1 + eps_clip) * A)
     log_q = logp_ref - logp_new
     kl = torch.exp(log_q) - log_q - 1                                    # "k3" KL estimate per token
-    per_token = surrogate - beta * kl
+    # ×ratio: value unchanged (ratio = 1), but adds kl·∇log p, the term from tokens being sampled
+    # from the policy, so the gradient is ∇KL(p‖q) rather than ∇KL(q‖p)
+    per_token = surrogate - beta * kl * ratio
     per_answer = (per_token * mask).sum(1) / mask.sum(1)                 # average over each answer's tokens
     clipped = ((ratio > 1 + eps_clip) & (A > 0)) | ((ratio < 1 - eps_clip) & (A < 0))
     clip_fraction = (clipped.float() * mask).sum() / mask.sum()
