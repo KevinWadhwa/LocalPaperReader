@@ -74,6 +74,8 @@ def main():
         seed=args.seed, bf16=True,
     )
 
+    print(config.to_json_string())
+
     trainer = GRPOTrainer(
         model=model,
         processing_class=tok,

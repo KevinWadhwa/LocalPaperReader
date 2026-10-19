@@ -14,4 +14,4 @@ micromamba activate localpaperreader
 
 export HF_HUB_OFFLINE=1
 cd /scratch_hive/kw1525/LocalPaperReader/grpo
-PYTHONPATH=. python toy/train_toy.py --difficulty 3 --steps 300 --out runs/toy_grpo_d3
+PYTHONPATH=. python toy/train_toy.py "$@"

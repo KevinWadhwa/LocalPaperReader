@@ -115,8 +115,14 @@ def main():
                 break
 
     os.makedirs("runs", exist_ok=True)
-    tag = "_trained" if args.adapter else ""
-    path = f"runs/eval_base_d{args.difficulty}.json"
+    tag = ""
+    if args.adapter:                                                     # runs/<run>/lora -> "_<run>"
+        adapter = os.path.normpath(args.adapter)
+        name = os.path.basename(adapter)
+        if name == "lora":
+            name = os.path.basename(os.path.dirname(adapter))
+        tag = f"_{name}"
+    path = f"runs/eval_base_d{args.difficulty}{tag}.json"
     with open(path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"\nsaved {path}")

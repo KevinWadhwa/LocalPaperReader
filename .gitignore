@@ -1,3 +1,9 @@
 hf_cache/
 *.pyc
 __pycache__/
+*.safetensors
+*.pt
+lora/
+*.jsonl
+*.json
+logs/

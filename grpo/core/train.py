@@ -14,7 +14,8 @@ def chunked_logprobs(model, seqs, amask, prompt_len, micro_batch):
 
 
 def grpo_step(model, tok, optimizer, problems, format_prompt, reward_fn, cfg):
-    # 1. Sample K answers per question with the current policy
+    # 1. Sample K answers per question with the current policy (eval: no dropout)
+    model.eval()
     batch = rollout(model, tok, problems, cfg.k, format_prompt, reward_fn,
                     cfg.temperature, cfg.max_new_tokens)
     seqs, amask = batch["sequences"], batch["attention_mask"]
@@ -29,16 +30,18 @@ def grpo_step(model, tok, optimizer, problems, format_prompt, reward_fn, cfg):
         with model.disable_adapter():
             logp_ref = chunked_logprobs(model, seqs, amask, P, cfg.micro_batch)
 
-    # 5. Update, a few rows at a time
+    # 5. Update, a few rows at a time (train: dropout on if configured)
+    model.train()
     N = seqs.shape[0]
-    totals = {"loss": 0.0, "clip_fraction": 0.0, "kl": 0.0, "ratio": 0.0}
+    totals = {"loss": 0.0, "clip_fraction": 0.0, "kl": 0.0, "ratio": 0.0, "entropy": 0.0}
     for _ in range(cfg.updates_per_batch):
         optimizer.zero_grad()
         for i in range(0, N, cfg.micro_batch):
             s = slice(i, i + cfg.micro_batch)
-            logp_new = token_logprobs(model, seqs[s], amask[s], P)
+            logp_new, entropy = token_logprobs(model, seqs[s], amask[s], P, return_entropy=True)
             loss, stats = grpo_loss(logp_new, logp_old[s], logp_ref[s], adv[s], cmask[s],
                                     cfg.eps_clip, cfg.beta)
+            stats["entropy"] = ((entropy * cmask[s]).sum() / cmask[s].sum()).item()  # mean over real answer tokens
             weight = logp_new.shape[0] / N
             (loss * weight).backward()
 
@@ -48,6 +51,7 @@ def grpo_step(model, tok, optimizer, problems, format_prompt, reward_fn, cfg):
                 totals[key] += value * share
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.max_grad_norm)
         optimizer.step()
+    model.eval()                                                         # leave in eval for callers (evaluate, save)
 
     totals["grad_norm"] = grad_norm.item()
     return batch, totals
