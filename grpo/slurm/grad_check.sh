@@ -14,4 +14,7 @@ micromamba activate localpaperreader
 
 export HF_HUB_OFFLINE=1
 cd /scratch_hive/kw1525/LocalPaperReader/grpo
-PYTHONPATH=. python toy/grad_check.py "$@"
+for bf16 in 1 0; do
+    echo "===== bf16=$bf16 ====="
+    PYTHONPATH=. python toy/grad_check.py --bf16 $bf16 "$@"
+done
