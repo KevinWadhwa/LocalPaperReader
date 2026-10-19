@@ -13,42 +13,56 @@ def chunked_logprobs(model, seqs, amask, prompt_len, micro_batch):
     return torch.cat(parts, dim=0)
 
 
+def prepare(model, batch, cfg):
+    """Steps 2-4: advantages, plus the fixed old (current weights) and ref (adapters off) log-probs."""
+    seqs, amask, P = batch["sequences"], batch["attention_mask"], batch["prompt_len"]
+    adv = group_advantages(batch["rewards"]).to(seqs.device)
+    with torch.no_grad():
+        logp_old = chunked_logprobs(model, seqs, amask, P, cfg.micro_batch)
+        with model.disable_adapter():
+            logp_ref = chunked_logprobs(model, seqs, amask, P, cfg.micro_batch)
+    return adv, logp_old, logp_ref
+
+
+def accumulate_grads(model, batch, adv, logp_old, logp_ref, cfg):
+    """Backward over every row, a few rows at a time; gradients add up in .grad.
+    Returns the loss stats averaged over rows. Does not zero grads or step."""
+    seqs, amask = batch["sequences"], batch["attention_mask"]
+    cmask, P = batch["comp_mask"], batch["prompt_len"]
+    N = seqs.shape[0]
+    totals = {"loss": 0.0, "clip_fraction": 0.0, "kl": 0.0, "ratio": 0.0, "entropy": 0.0}
+    for i in range(0, N, cfg.micro_batch):
+        s = slice(i, i + cfg.micro_batch)
+        logp_new, entropy = token_logprobs(model, seqs[s], amask[s], P, return_entropy=True)
+        loss, stats = grpo_loss(logp_new, logp_old[s], logp_ref[s], adv[s], cmask[s],
+                                cfg.eps_clip, cfg.beta)
+        stats["entropy"] = ((entropy * cmask[s]).sum() / cmask[s].sum()).item()  # mean over real answer tokens
+        weight = logp_new.shape[0] / N
+        (loss * weight).backward()
+
+        totals["loss"] += loss.item() * weight
+        for key, value in stats.items():
+            totals[key] += value * weight
+    return totals
+
+
 def grpo_step(model, tok, optimizer, problems, format_prompt, reward_fn, cfg):
     # 1. Sample K answers per question with the current policy (eval: no dropout)
     model.eval()
     batch = rollout(model, tok, problems, cfg.k, format_prompt, reward_fn,
                     cfg.temperature, cfg.max_new_tokens)
-    seqs, amask = batch["sequences"], batch["attention_mask"]
-    cmask, P = batch["comp_mask"], batch["prompt_len"]
 
-    # 2. One advantage per answer
-    adv = group_advantages(batch["rewards"]).to(seqs.device)
+    # 2-4. One advantage per answer; fixed old and ref log-probs
+    adv, logp_old, logp_ref = prepare(model, batch, cfg)
 
-    # 3-4. Fixed log-probs: old (current weights) and ref (adapters off)
-    with torch.no_grad():
-        logp_old = chunked_logprobs(model, seqs, amask, P, cfg.micro_batch)
-        with model.disable_adapter():
-            logp_ref = chunked_logprobs(model, seqs, amask, P, cfg.micro_batch)
-
-    # 5. Update, a few rows at a time (train: dropout on if configured)
+    # 5. Update (train: dropout on if configured)
     model.train()
-    N = seqs.shape[0]
-    totals = {"loss": 0.0, "clip_fraction": 0.0, "kl": 0.0, "ratio": 0.0, "entropy": 0.0}
+    totals = {}
     for _ in range(cfg.updates_per_batch):
         optimizer.zero_grad()
-        for i in range(0, N, cfg.micro_batch):
-            s = slice(i, i + cfg.micro_batch)
-            logp_new, entropy = token_logprobs(model, seqs[s], amask[s], P, return_entropy=True)
-            loss, stats = grpo_loss(logp_new, logp_old[s], logp_ref[s], adv[s], cmask[s],
-                                    cfg.eps_clip, cfg.beta)
-            stats["entropy"] = ((entropy * cmask[s]).sum() / cmask[s].sum()).item()  # mean over real answer tokens
-            weight = logp_new.shape[0] / N
-            (loss * weight).backward()
-
-            share = weight / cfg.updates_per_batch
-            totals["loss"] += loss.item() * share
-            for key, value in stats.items():
-                totals[key] += value * share
+        stats = accumulate_grads(model, batch, adv, logp_old, logp_ref, cfg)
+        for key, value in stats.items():
+            totals[key] = totals.get(key, 0.0) + value / cfg.updates_per_batch
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.max_grad_norm)
         optimizer.step()
     model.eval()                                                         # leave in eval for callers (evaluate, save)
