@@ -50,7 +50,7 @@ if __name__ == "__main__":
     papers, questions = load_split("data/qasper/qasper-dev-v0.3.json")
     retriever = DenseRetriever(papers)
 
-    n, results = recall_at_k(retriever, papers, questions, [1, 3, 5, 8, 10, 15, 20], tok)
+    n, results = recall_at_k(retriever, papers, questions, [1, 3, 5, 8, 10, 15, 20, 30, 50], tok)
     print(f"dev answerable questions with evidence: {n}")
     print(f"{'k':>4} {'any-hit':>8} {'all-hit':>8} {'context tokens':>15}")
     for k, (a, b, t) in results.items():
