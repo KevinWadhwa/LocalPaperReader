@@ -1,11 +1,11 @@
 from qasper.data import table_only
-from qasper.retrieval import tokenize
+from qasper.bm25 import tokenize
 
 CAPTION_SECTION = "Figures and tables"
 
 CAPTION_LABEL = "Table/figure caption; contents not shown"
 
-def build_context(paper, ranked_idx, k=10):
+def build_context(paper, ranked_idx, k=16):
     shown = sorted(ranked_idx[:k])
     blocks, p_to_idx = [f"Title: {paper.title}"], {}
     for p, idx in enumerate(shown, start=1):
