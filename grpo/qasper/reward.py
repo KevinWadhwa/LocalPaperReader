@@ -9,7 +9,7 @@ MAX_QUOTES, MIN_WORDS, MAX_WORDS = 3, 5, 50
 FORMAT_PENALTY, FABRICATION_PENALTY, UNGROUNDED_PENALTY = -0.5, -1.0, -0.5
 
 SAFE = r"(?:(?!</?(?:quote|answer)\b).)*"
-QUOTE = rf'<quote p="(\d+)">({SAFE})</quote>'
+QUOTE = rf'<quote p="P?(\d+)">({SAFE})</quote>'
 ANSWER = rf"<answer>({SAFE})</answer>"
 FULL_RE = re.compile(rf"\s*(?:{QUOTE}\s*)*{ANSWER}\s*", re.DOTALL)
 QUOTE_RE = re.compile(QUOTE, re.DOTALL)
@@ -134,7 +134,7 @@ if __name__ == "__main__":
     print(f"\nhand-made cases: {len(cases) - n_fail}/{len(cases)} passed\n")
 
     # ---------- 2. real data (train) ----------
-    tok = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct")
+    tok = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B")
     papers, questions = load_split("data/qasper/qasper-train-v0.3.json")
     ranking = json.load(open("data/qasper/retrieval_train.json"))["ranking"]
     labels, reasons, outcomes, lengths, example = Counter(), Counter(), Counter(), [], None

@@ -20,7 +20,7 @@ class HybridRetriever:
         for weight, ranks in ((self.w, self.bm25[paper_id].top_k(question, n)),
                       (1 - self.w, self.dense.top_k(paper_id, question, n))):
             for position, i in enumerate(ranks):
-                fused[i] += 1.0 / (self.c + position + 1)
+                fused[i] += weight / (self.c + position + 1)
         return sorted(fused, key=fused.get, reverse=True)[:k]
 
 

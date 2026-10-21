@@ -4,8 +4,8 @@ MAX_PROMPT_TOKENS = 4000
 
 SYSTEM_PROMPT = f"""You answer questions about a research paper using only the numbered paragraphs provided.
 
-1. First, copy 1 to 3 passages word for word from the paragraphs that support your answer. Each passage must be 5 to 50 words, written as <quote p="N">passage</quote>, where N is the paragraph's number.
-2. Then give a short answer as <answer>answer</answer>. Answer yes/no questions with exactly Yes or No.
+1. First, copy 1 to 3 passages word for word from the paragraphs that support your answer. Each passage must be 5 to 50 words, written as <quote p="number of paragraph">passage</quote>.
+2. Then give a short answer inbetween these <answer></answer>. Only if the question is yes/no then answer exactly Yes or No.
 3. If the paragraphs do not contain the answer, write only: <answer>{ABSTAIN}</answer>
 
 Tables and figures are not shown, only their captions."""
@@ -34,4 +34,4 @@ def build_messages(context, question, few_shot=False):
 
 def format_prompt(tok, context, question, few_shot=False):
     return tok.apply_chat_template(build_messages(context, question, few_shot),
-                                   tokenize=False, add_generation_prompt=True)
+                                   tokenize=False, add_generation_prompt=True, enable_thinking=False)
