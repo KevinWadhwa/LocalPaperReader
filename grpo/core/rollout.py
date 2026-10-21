@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 
 def make_comp_mask(comp_ids, eos_ids):
     """
@@ -15,17 +16,22 @@ def make_comp_mask(comp_ids, eos_ids):
 
 
 @torch.no_grad()
-def sample_comp(model, tok, prompts, k, temperature=1.0, max_new_tokens=512):
+def sample_comp(model, tok, prompts, k, temperature=1.0, max_new_tokens=512, gen_batch=None):
     enc = tok(prompts, return_tensors="pt", padding=True).to(model.device)
-    out = model.generate(
-        **enc,
-        do_sample = True, temperature = temperature, top_p = 1.0, top_k = 0,
-        repetition_penalty = 1.0, num_return_sequences=k,
-        max_new_tokens=max_new_tokens, pad_token_id=tok.pad_token_id,
-    )
-
     prompt_len = enc["input_ids"].shape[1]
-    comp_ids = out[:, prompt_len:]
+    step = gen_batch or len(prompts)
+    chunks = []
+    for i in range(0, len(prompts), step):
+        out = model.generate(
+            input_ids=enc["input_ids"][i:i + step], attention_mask=enc["attention_mask"][i:i + step],
+            do_sample=True, temperature=temperature, top_p=1.0, top_k=0,
+            repetition_penalty=1.0, num_return_sequences=k,
+            max_new_tokens=max_new_tokens, pad_token_id=tok.pad_token_id,
+        )
+        chunks.append(out[:, prompt_len:])
+    T = max(c.shape[1] for c in chunks)
+    comp_ids = torch.cat([F.pad(c, (0, T - c.shape[1]), value=tok.pad_token_id) for c in chunks])
+    out = torch.cat([enc["input_ids"].repeat_interleave(k, dim=0), comp_ids], dim=1)
 
     eos = model.generation_config.eos_token_id
     eos_ids = torch.tensor(eos if isinstance(eos,list) else [eos], device=out.device)
@@ -44,7 +50,7 @@ def sample_comp(model, tok, prompts, k, temperature=1.0, max_new_tokens=512):
     }
 
 def rollout(model, tok, problems, k, format_prompt, reward_fn,
-            temperature=1.0, max_new_tokens=512):
+            temperature=1.0, max_new_tokens=512, gen_batch=None):
     """Sample K answers per problem and score them.
 
     problems:      list of (question, answer)
@@ -52,7 +58,7 @@ def rollout(model, tok, problems, k, format_prompt, reward_fn,
     reward_fn:     function (completion_text, answer) -> float
     """
     prompts = [format_prompt(tok, q) for q, _ in problems]
-    batch = sample_comp(model, tok, prompts, k, temperature, max_new_tokens)
+    batch = sample_comp(model, tok, prompts, k, temperature, max_new_tokens, gen_batch)
 
     answers = [a for _, a in problems for _ in range(k)]          # each answer repeated K times
     rewards = [reward_fn(t, a) for t, a in zip(batch["texts"], answers)]

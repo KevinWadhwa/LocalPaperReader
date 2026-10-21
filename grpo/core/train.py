@@ -50,7 +50,7 @@ def grpo_step(model, tok, optimizer, problems, format_prompt, reward_fn, cfg):
     # 1. Sample K answers per question with the current policy (eval: no dropout)
     model.eval()
     batch = rollout(model, tok, problems, cfg.k, format_prompt, reward_fn,
-                    cfg.temperature, cfg.max_new_tokens)
+                    cfg.temperature, cfg.max_new_tokens, getattr(cfg, "gen_batch", None))
 
     # 2-4. One advantage per answer; fixed old and ref log-probs
     adv, logp_old, logp_ref = prepare(model, batch, cfg)
