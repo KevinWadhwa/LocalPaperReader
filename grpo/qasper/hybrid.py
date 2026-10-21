@@ -7,17 +7,18 @@ from qasper.dense import DenseRetriever, recall_at_k
 class HybridRetriever:
     """Reciprocal rank fusion of BM25 and dense rankings."""
 
-    def __init__(self, papers, c=60):
+    def __init__(self, papers, w=0.3, c=5):
         self.papers = papers
         self.bm25 = {pid: PaperIndex(p) for pid, p in papers.items()}
         self.dense = DenseRetriever(papers)
+        self.w = w
         self.c = c
 
     def top_k(self, paper_id, question, k):
         n = len(self.papers[paper_id].paragraphs)
         fused = defaultdict(float)
-        for ranks in (self.bm25[paper_id].top_k(question, n),
-                      self.dense.top_k(paper_id, question, n)):
+        for weight, ranks in ((self.w, self.bm25[paper_id].top_k(question, n)),
+                      (1 - self.w, self.dense.top_k(paper_id, question, n))):
             for position, i in enumerate(ranks):
                 fused[i] += 1.0 / (self.c + position + 1)
         return sorted(fused, key=fused.get, reverse=True)[:k]
