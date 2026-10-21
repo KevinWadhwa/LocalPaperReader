@@ -7,7 +7,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from qasper.taskdata import build_examples
-from qasper.reward import reward, parse, answer_score
+from qasper.reward import reward, parse, answer_score, ANSWER_RE, ABSTAIN, norm_ws
 
 
 def parse_args():
@@ -58,8 +58,32 @@ def summarise(records):
         "f1_overall": sum(r.get("f1", 0.0) for r in ans) / max(len(ans), 1),
         "gold_citation_when_answered": rate(answered, lambda r: r["cited_gold"]),
         "abstain_target_abstained": rate(abst, lambda r: r["outcome"] == "abstain"),
+        "f1_overall": sum(r.get("f1", 0.0) for r in ans) / max(len(ans), 1),
+        "raw_f1_answerable": sum(r["raw_f1"] for r in ans) / max(len(ans), 1),
     }
 
+def run_eval(model, tok, examples, batch_size, max_new_tokens):
+    order = sorted(range(len(examples)), key=lambda i: examples[i].n_tokens)
+    records = [None] * len(examples)
+    for start in range(0, len(order), batch_size):
+        idx = order[start:start + batch_size]
+        texts = generate(model, tok, [examples[i].prompt for i in idx], max_new_tokens)
+        for i, text in zip(idx, texts):
+            e = examples[i]
+            score, outcome = reward(text, e.question, e.paper, e.p_to_idx, e.target, e.gold_ps)
+            rec = {"question_id": e.question.question_id, "target": e.target, "kind": e.question.kind,
+                   "score": score, "outcome": outcome, "output": text}
+            m = ANSWER_RE.search(text)
+            raw = norm_ws(m.group(1)) if m else None
+            if e.target == "answer":
+                rec["raw_f1"] = answer_score(raw, e.question) if raw and raw != ABSTAIN else 0.0
+            if e.target == "answer" and outcome == "answer":
+                quotes, answer = parse(text)
+                rec["f1"] = answer_score(answer, e.question)
+                rec["cited_gold"] = any(p in e.gold_ps for p, _ in quotes)
+            records[i] = rec
+        print(f"{min(start + batch_size, len(order))}/{len(order)}", flush=True)
+    return records
 
 def main():
     args = parse_args()
@@ -67,23 +91,7 @@ def main():
     examples, _ = build_examples(args.split, tok, few_shot=args.few_shot)
     if args.n:
         examples = examples[:args.n]
-    order = sorted(range(len(examples)), key=lambda i: examples[i].n_tokens)
-    records = [None] * len(examples)
-
-    for start in range(0, len(order), args.batch_size):
-        idx = order[start:start + args.batch_size]
-        texts = generate(model, tok, [examples[i].prompt for i in idx], args.max_new_tokens)
-        for i, text in zip(idx, texts):
-            e = examples[i]
-            score, outcome = reward(text, e.question, e.paper, e.p_to_idx, e.target, e.gold_ps)
-            rec = {"question_id": e.question.question_id, "target": e.target, "kind": e.question.kind,
-                   "score": score, "outcome": outcome, "output": text}
-            if e.target == "answer" and outcome == "answer":
-                quotes, answer = parse(text)
-                rec["f1"] = answer_score(answer, e.question)
-                rec["cited_gold"] = any(p in e.gold_ps for p, _ in quotes)
-            records[i] = rec
-        print(f"{min(start + args.batch_size, len(order))}/{len(order)}", flush=True)
+    records = run_eval(model, tok, examples, args.batch_size, args.max_new_tokens)
 
     tag = args.model.rstrip("/").split("/")[-1] + ("_fewshot" if args.few_shot else "")
     if args.adapter:
