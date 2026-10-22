@@ -7,6 +7,7 @@ from qasper.context import contains_answer
 ABSTAIN = "I couldn't find the answer in the retrieved sections."
 MAX_QUOTES, MIN_WORDS, MAX_WORDS = 3, 5, 50
 FORMAT_PENALTY, FABRICATION_PENALTY, UNGROUNDED_PENALTY = -0.5, -1.0, -0.5
+MISCITE_PENALTY = -0.5
 
 SAFE = r"(?:(?!</?(?:quote|answer)\b).)*"
 QUOTE = rf'<quote p="P?(\d+)">({SAFE})</quote>'
@@ -61,6 +62,16 @@ def answer_score(pred, question):
         return float(any(normalise_answer(pred) == normalise_answer(g) for g in golds))
     return max(token_f1(pred, g) for g in golds)
 
+def quote_check(quotes, paper, p_to_idx):
+    shown = [norm_ws(paper.paragraphs[i]) for i in p_to_idx.values()]
+    worst = "ok"
+    for p, q in quotes:
+        if q in norm_ws(paper.paragraphs[p_to_idx[p]]):
+            continue
+        if not any(q in s for s in shown):
+            return "fabricated"
+        worst = "miscited"
+    return worst
 
 def reward(output, question, paper, p_to_idx, target, gold_ps, a=0.1, bonus=0.4):
     parsed = parse(output)
@@ -70,8 +81,11 @@ def reward(output, question, paper, p_to_idx, target, gold_ps, a=0.1, bonus=0.4)
     abstained = answer == ABSTAIN
     if not format_ok(quotes, answer, abstained, p_to_idx):
         return FORMAT_PENALTY, "format"
-    if any(q not in norm_ws(paper.paragraphs[p_to_idx[p]]) for p, q in quotes):
+    check = quote_check(quotes, paper, p_to_idx)
+    if check == "fabricated":
         return FABRICATION_PENALTY, "fabricated"
+    if check == "miscited":
+        return MISCITE_PENALTY, "miscited"
     if not abstained and question.kind == "extractive" and \
             not contains_answer(" ".join(q for _, q in quotes), answer):
         return UNGROUNDED_PENALTY, "ungrounded"
