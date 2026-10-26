@@ -148,7 +148,7 @@ if __name__ == "__main__":
     print(f"\nhand-made cases: {len(cases) - n_fail}/{len(cases)} passed\n")
 
     # ---------- 2. real data (train) ----------
-    tok = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B")
+    tok = AutoTokenizer.from_pretrained("Qwen/Qwen3-1.7B")
     papers, questions = load_split("data/qasper/qasper-train-v0.3.json")
     ranking = json.load(open("data/qasper/retrieval_train.json"))["ranking"]
     labels, reasons, outcomes, lengths, example = Counter(), Counter(), Counter(), [], None

@@ -44,7 +44,7 @@ def build_examples(split, tok, k=16, few_shot=False, drop_long=None):
 if __name__ == "__main__":
     import statistics
     from transformers import AutoTokenizer
-    tok = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B")
+    tok = AutoTokenizer.from_pretrained("Qwen/Qwen3-1.7B")
     for split in ["train", "dev"]:
         examples, counts = build_examples(split, tok)
         lengths = [e.n_tokens for e in examples]

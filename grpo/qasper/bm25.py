@@ -48,7 +48,7 @@ def recall_at_k(papers, questions, ks, tok=None):
 if __name__ == "__main__":
     from transformers import AutoTokenizer
     from qasper.data import load_split
-    tok = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct")
+    tok = AutoTokenizer.from_pretrained("Qwen/Qwen3-1.7B")
     papers, questions = load_split("data/qasper/qasper-dev-v0.3.json")
     n, results = recall_at_k(papers, questions, [1, 3, 5, 8, 10, 15, 20], tok)
     print(f"dev answerable questions with evidence: {n}")

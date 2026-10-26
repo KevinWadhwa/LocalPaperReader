@@ -154,7 +154,7 @@ def summarise(name, papers, questions, tok=None):
 
 if __name__ == "__main__":
     from transformers import AutoTokenizer
-    tok = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct")
+    tok = AutoTokenizer.from_pretrained("Qwen/Qwen3-1.7B")
     for split in ["train", "dev"]:
         papers, questions = load_split(f"data/qasper/qasper-{split}-v0.3.json")
         summarise(split, papers, questions, tok)

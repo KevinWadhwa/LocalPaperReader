@@ -46,7 +46,7 @@ if __name__ == "__main__":
     from transformers import AutoTokenizer
     from qasper.data import load_split
 
-    tok = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct")
+    tok = AutoTokenizer.from_pretrained("Qwen/Qwen3-1.7B")
     papers, questions = load_split("data/qasper/qasper-dev-v0.3.json")
     retriever = DenseRetriever(papers)
 

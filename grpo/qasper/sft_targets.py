@@ -92,7 +92,7 @@ def build_sft_examples(split, tok):
 
 if __name__ == "__main__":
     from transformers import AutoTokenizer
-    tok = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B")
+    tok = AutoTokenizer.from_pretrained("Qwen/Qwen3-1.7B")
     pairs, counts = build_sft_examples("train", tok)
     for k, v in sorted(counts.items()):
         print(f"{v:5d}  {k}")
