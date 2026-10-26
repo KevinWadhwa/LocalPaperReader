@@ -20,8 +20,11 @@ def parse_args():
     p.add_argument("--eval_every", type=int, default=20)
     p.add_argument("--out", default="runs/grpo_1.7b")
     p.add_argument("--a", type=float, default=0.1) 
-    p.add_argument("--lr", type=float, default=2e-5)        
+    p.add_argument("--lr", type=float, default=2e-5) 
+    p.add_argument("--norm_len", default=None)       
     args = p.parse_args()
+    if args.norm_len not in (None, "batch"):
+        args.norm_len = float(args.norm_len)
     args.k, args.beta, args.eps_clip, args.temperature, args.lora_r = 8, 0.04, 0.2, 1.0, 16
     args.max_new_tokens, args.micro_batch, args.updates_per_batch, args.max_grad_norm = 320, 4, 1, 1.0
     args.gen_batch = 2
