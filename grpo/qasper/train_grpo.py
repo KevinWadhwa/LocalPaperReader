@@ -9,6 +9,7 @@ from core.train import grpo_step
 from toy.train_toy import load_model, log_row
 from qasper.taskdata import build_examples
 from qasper.reward import reward
+from qasper.sft_targets import build_target
 from qasper.evaluate import run_eval, summarise
 
 
@@ -60,6 +61,8 @@ def main():
                                   lr=args.lr, weight_decay=0.0)
 
     train, _ = build_examples("train", tok)
+    # answer prompts with no valid gold-based answer only ever teach abstention
+    train = [e for e in train if e.target == "abstain" or build_target(e)[0] is not None]
     dev = rng.sample(build_examples("dev", tok)[0], 200)
     rng.shuffle(train)
     fmt = lambda tok, e: e.prompt
