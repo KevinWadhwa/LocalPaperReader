@@ -10,7 +10,7 @@ def group_advantages(rewards, eps=1e-8, scale=True):
         adv = adv / (std + eps)
     return adv.view(-1)
 
-def grpo_loss(logp_new, logp_old, logp_ref, adv, mask, eps_clip=0.2, beta=0.04):
+def grpo_loss(logp_new, logp_old, logp_ref, adv, mask, eps_clip=0.2, beta=0.04, norm_len=None):
     ratio = torch.exp(logp_new - logp_old)                               # ρ for every token
     A = adv.unsqueeze(1)                                                 # same advantage for all tokens of an answer
     surrogate = torch.min(ratio * A, torch.clamp(ratio, 1 - eps_clip, 1 + eps_clip) * A)
@@ -19,7 +19,10 @@ def grpo_loss(logp_new, logp_old, logp_ref, adv, mask, eps_clip=0.2, beta=0.04):
     # ×ratio: value unchanged (ratio = 1), but adds kl·∇log p, the term from tokens being sampled
     # from the policy, so the gradient is ∇KL(p‖q) rather than ∇KL(q‖p)
     per_token = surrogate - beta * kl * ratio
-    per_answer = (per_token * mask).sum(1) / mask.sum(1)                 # average over each answer's tokens
+    if norm_len is None:
+        per_answer = (per_token * mask).sum(dim=1) / mask.sum(dim=1)     # original GRPO: own length
+    else:
+        per_answer = (per_token * mask).sum(dim=1) / norm_len            # constant or batch (DAPO)
     clipped = ((ratio > 1 + eps_clip) & (A > 0)) | ((ratio < 1 - eps_clip) & (A < 0))
     clip_fraction = (clipped.float() * mask).sum() / mask.sum()
     stats = {
