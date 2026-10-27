@@ -5,11 +5,12 @@ from core.logps import token_logprobs
 from core.grpo import group_advantages, grpo_loss
 
 
-def chunked_logprobs(model, seqs, amask, prompt_len, micro_batch):
+def chunked_logprobs(model, seqs, amask, prompt_len, micro_batch, temperature=1.0):
     """token_logprobs over all rows, a few rows at a time. Call inside no_grad."""
     parts = []
     for i in range(0, seqs.shape[0], micro_batch):
-        parts.append(token_logprobs(model, seqs[i:i + micro_batch], amask[i:i + micro_batch], prompt_len))
+        parts.append(token_logprobs(model, seqs[i:i + micro_batch], amask[i:i + micro_batch], prompt_len,
+                                    temperature=temperature))
     return torch.cat(parts, dim=0)
 
 
@@ -18,9 +19,9 @@ def prepare(model, batch, cfg):
     seqs, amask, P = batch["sequences"], batch["attention_mask"], batch["prompt_len"]
     adv = group_advantages(batch["rewards"]).to(seqs.device)
     with torch.no_grad():
-        logp_old = chunked_logprobs(model, seqs, amask, P, cfg.micro_batch)
+        logp_old = chunked_logprobs(model, seqs, amask, P, cfg.micro_batch, cfg.temperature)
         with model.disable_adapter():
-            logp_ref = chunked_logprobs(model, seqs, amask, P, cfg.micro_batch)
+            logp_ref = chunked_logprobs(model, seqs, amask, P, cfg.micro_batch, cfg.temperature)
     return adv, logp_old, logp_ref
 
 
@@ -36,7 +37,8 @@ def accumulate_grads(model, batch, adv, logp_old, logp_ref, cfg):
     totals = {"loss": 0.0, "clip_fraction": 0.0, "kl": 0.0, "ratio": 0.0, "entropy": 0.0}
     for i in range(0, N, cfg.micro_batch):
         s = slice(i, i + cfg.micro_batch)
-        logp_new, entropy = token_logprobs(model, seqs[s], amask[s], P, return_entropy=True)
+        logp_new, entropy = token_logprobs(model, seqs[s], amask[s], P, return_entropy=True,
+                                           temperature=cfg.temperature)
         loss, stats = grpo_loss(logp_new, logp_old[s], logp_ref[s], adv[s], cmask[s],
                                 cfg.eps_clip, cfg.beta, norm_len)
         stats["entropy"] = ((entropy * cmask[s]).sum() / cmask[s].sum()).item()  # mean over real answer tokens
