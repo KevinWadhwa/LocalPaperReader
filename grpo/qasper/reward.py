@@ -8,6 +8,7 @@ ABSTAIN = "I couldn't find the answer in the retrieved sections."
 MAX_QUOTES, MIN_WORDS, MAX_WORDS = 3, 5, 50
 FORMAT_PENALTY, FABRICATION_PENALTY, UNGROUNDED_PENALTY = -0.5, -1.0, -0.5
 MISCITE_PENALTY = -0.5
+UNGROUNDED_SCALE = 0.25     # answer target: ungrounded answers keep a quarter of their F1, no citation bonus
 
 SAFE = r"(?:(?!</?(?:quote|answer)\b).)*"
 QUOTE = rf'<quote p="P?(\d+)">({SAFE})</quote>'
@@ -88,6 +89,8 @@ def reward(output, question, paper, p_to_idx, target, gold_ps, a=0.1, bonus=0.4)
         return MISCITE_PENALTY, "miscited"
     if not abstained and question.kind == "extractive" and \
             not contains_answer(" ".join(q for _, q in quotes), answer):
+        if target == "answer":
+            return UNGROUNDED_SCALE * answer_score(answer, question), "ungrounded"
         return UNGROUNDED_PENALTY, "ungrounded"
     if target == "abstain":
         return (1.0, "abstain") if abstained else (0.0, "answer")
@@ -122,8 +125,9 @@ if __name__ == "__main__":
         ("correct, cites non-gold",    q_ext, "answer",  '<quote p="1">a CRF baseline on the CoNLL-2003 English dataset</quote><answer>CoNLL-2003</answer>', 1.0, "answer"),
         ("newline inside quote",       q_ext, "answer",  '<quote p="2">We train all\nmodels on the CoNLL-2003 English dataset</quote><answer>CoNLL-2003</answer>', 1.4, "answer"),
         ("fabricated quote",           q_ext, "answer",  '<quote p="2">We train all models on the CoNLL-2012 English dataset</quote><answer>CoNLL-2003</answer>', -1.0, "fabricated"),
-        ("real quote cited to wrong p",q_ext, "answer",  '<quote p="1">We train all models on the CoNLL-2003 English dataset</quote><answer>CoNLL-2003</answer>', -1.0, "fabricated"),
-        ("ungrounded extractive",      q_ext, "answer",  '<quote p="2">English dataset for named entity recognition.</quote><answer>CoNLL-2003</answer>', -0.5, "ungrounded"),
+        ("real quote cited to wrong p",q_ext, "answer",  '<quote p="1">We train all models on the CoNLL-2003 English dataset</quote><answer>CoNLL-2003</answer>', -0.5, "miscited"),
+        ("ungrounded extractive",      q_ext, "answer",  '<quote p="2">English dataset for named entity recognition.</quote><answer>CoNLL-2003</answer>', 0.25, "ungrounded"),
+        ("ungrounded, abstain target", q_ext, "abstain", '<quote p="2">English dataset for named entity recognition.</quote><answer>CoNLL-2003</answer>', -0.5, "ungrounded"),
         ("answer with no quote",       q_ext, "answer",  "<answer>CoNLL-2003</answer>", -0.5, "format"),
         ("text outside tags",          q_ext, "answer",  "Sure! " + good_q + "<answer>CoNLL-2003</answer>", -0.5, "format"),
         ("answer before quote",        q_ext, "answer",  "<answer>CoNLL-2003</answer>" + good_q, -0.5, "format"),
