@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import random
 import time
@@ -6,9 +7,10 @@ import time
 import torch
 
 from core.train import grpo_step
+from core.trace import Tracer, traced_step
 from toy.train_toy import load_model, log_row
 from qasper.taskdata import build_examples
-from qasper.reward import reward
+from qasper.reward import reward, ABSTAIN
 from qasper.sft_targets import build_target
 from qasper.evaluate import run_eval, summarise
 
@@ -24,6 +26,9 @@ def parse_args():
     p.add_argument("--lr", type=float, default=2e-5) 
     p.add_argument("--norm_len", default=None)
     p.add_argument("--temperature", type=float, default=0.7)
+    p.add_argument("--dtype", default="bf16", choices=["bf16", "fp32"])  # fp32: LoRA's small changes aren't rounded away
+    p.add_argument("--trace", action="store_true")              # log the exact split of each update (core/trace.py)
+    p.add_argument("--trace_probe", type=int, default=32)       # dev prompts per probe set
     args = p.parse_args()
     if args.norm_len not in (None, "batch"):
         args.norm_len = float(args.norm_len)
@@ -52,6 +57,9 @@ def evaluate(model, tok, dev):
 
 def main():
     args = parse_args()
+    if args.dtype == "fp32":
+        torch.backends.cuda.matmul.allow_tf32 = True                    # TF32 inputs, fp32 outputs: speed without rounding outputs
+        torch.backends.cudnn.allow_tf32 = True
     torch.manual_seed(0)
     rng = random.Random(0)
     tok, model = load_model(args)
@@ -61,22 +69,41 @@ def main():
                                   lr=args.lr, weight_decay=0.0)
 
     train, _ = build_examples("train", tok)
-    # answer prompts with no valid gold-based answer only ever teach abstention
-    train = [e for e in train if e.target == "abstain" or build_target(e)[0] is not None]
-    dev = rng.sample(build_examples("dev", tok)[0], 200)
+    # answerable needs a buildable target; abstain only on truly unanswerable
+    train = [e for e in train if (e.target == "answer" and build_target(e)[0] is not None)
+             or e.question.label == "unanswerable"]
+    dev_all = build_examples("dev", tok)[0]
+    dev = rng.sample(dev_all, 200)
     rng.shuffle(train)
     fmt = lambda tok, e: e.prompt
     rew = lambda text, e: reward(text, e.question, e.paper, e.p_to_idx, e.target, e.gold_ps, a=args.a)[0]
+    lab = lambda text, e: (e.target, reward(text, e.question, e.paper, e.p_to_idx, e.target, e.gold_ps, a=args.a)[1])
 
     os.makedirs(args.out, exist_ok=True)
     log = open(f"{args.out}/log.jsonl", "w")
+    tracer = None
+    if args.trace:
+        prng = random.Random(1)
+        probe_sets = {
+            "answerable": [e.prompt for e in prng.sample([e for e in dev_all if e.target == "answer"], args.trace_probe)],
+            "unanswerable": [e.prompt for e in prng.sample([e for e in dev_all if e.question.label == "unanswerable"],
+                                                           args.trace_probe)],
+        }
+        tracer = Tracer(model, tok, args.model, probe_sets, f"<answer>{ABSTAIN}</answer><|im_end|>", args.temperature)
+        trace = open(f"{args.out}/trace.jsonl", "w")
     log_row(log, {"step": 0, **evaluate(model, tok, dev)})
 
     for step in range(1, args.steps + 1):
         t0 = time.time()
         start = (step - 1) * args.questions % len(train)
         examples = train[start:start + args.questions]
-        batch, stats = grpo_step(model, tok, optimizer, [(e, e) for e in examples], fmt, rew, args)
+        if tracer:
+            batch, stats, rec = traced_step(model, tok, optimizer, [(e, e) for e in examples], fmt, rew, lab, args, tracer)
+            trace.write(json.dumps({"step": step, **rec}) + "\n")
+            trace.flush()
+            stats.update({f"probe_{s}": v for s, v in rec["f_after"].items()})
+        else:
+            batch, stats = grpo_step(model, tok, optimizer, [(e, e) for e in examples], fmt, rew, args)
         row = {"step": step, **step_stats(batch, examples, args.k), **stats,
                "seconds": time.time() - t0, "gpu_mem_gb": torch.cuda.max_memory_allocated() / 1e9}
         if step % args.eval_every == 0:
