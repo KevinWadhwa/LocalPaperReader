@@ -7,7 +7,7 @@ def group_advantages(rewards, eps=1e-8, scale=True):
     adv = rewards - mean
     if scale:
         std = rewards.std(dim=1, keepdim=True)
-        adv = adv / (std + eps)
+        adv = torch.where(std > 1e-6, adv / std.clamp_min(1e-6), torch.zeros_like(adv))
     return adv.view(-1)
 
 def grpo_loss(logp_new, logp_old, logp_ref, adv, mask, eps_clip=0.2, beta=0.04, norm_len=None):
