@@ -26,7 +26,7 @@ def parse_args():
     p.add_argument("--lr", type=float, default=2e-5) 
     p.add_argument("--norm_len", default=None)
     p.add_argument("--temperature", type=float, default=0.7)
-    p.add_argument("--dtype", default="bf16", choices=["bf16", "fp32"])  # fp32: LoRA's small changes aren't rounded away
+    p.add_argument("--dtype", default="fp32", choices=["bf16", "fp32"])  # fp32: LoRA's small changes aren't rounded away
     p.add_argument("--trace", action="store_true")              # log the exact split of each update (core/trace.py)
     p.add_argument("--trace_probe", type=int, default=32)       # dev prompts per probe set
     args = p.parse_args()
