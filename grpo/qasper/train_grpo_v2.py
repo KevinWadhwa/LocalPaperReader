@@ -31,6 +31,9 @@ def parse_args():
     p.add_argument("--lr", type=float, default=2e-5) 
     p.add_argument("--norm_len", default=None)
     p.add_argument("--abstain_share", type=float, default=ABSTAIN_SHARE)   # 0: answer questions only, a verifier decides
+    p.add_argument("--completion_logits", action="store_true")  # logits only where they predict the answer (less memory)
+    p.add_argument("--gen_batch", type=int, default=2)          # prompts sampled at once, k sequences each: KV cache size
+    p.add_argument("--eval_batch", type=int, default=16)        # dev prompts generated at once during training evals
     p.add_argument("--temperature", type=float, default=0.7)
     p.add_argument("--dtype", default="fp32", choices=["bf16", "fp32"])  # fp32: LoRA's small changes aren't rounded away
     p.add_argument("--trace", action="store_true")              # log the exact split of each update (core/trace.py)
@@ -40,7 +43,6 @@ def parse_args():
         args.norm_len = float(args.norm_len)
     args.k, args.beta, args.eps_clip, args.lora_r = 8, 0.04, 0.2, 16
     args.max_new_tokens, args.micro_batch, args.updates_per_batch, args.max_grad_norm = 320, 4, 1, 1.0
-    args.gen_batch = 2
     return args
 
 
@@ -58,8 +60,8 @@ def step_stats(batch, examples, k):
             "abstain_on_twin": twin.count("abstain") / len(twin) if twin else None}
 
 
-def evaluate(model, tok, dev):
-    m = summarise(run_eval(model, tok, dev, batch_size=16, max_new_tokens=384))
+def evaluate(model, tok, dev, batch_size=16):
+    m = summarise(run_eval(model, tok, dev, batch_size=batch_size, max_new_tokens=384))
     return {"eval_" + k: v for k, v in m.items() if isinstance(v, float)}
 
 
@@ -133,7 +135,7 @@ def main():
         }
         tracer = Tracer(model, tok, args.model, probe_sets, f"<answer>{ABSTAIN}</answer><|im_end|>", args.temperature)
         trace = open(f"{args.out}/trace.jsonl", "w")
-    log_row(log, {"step": 0, **evaluate(model, tok, dev)})
+    log_row(log, {"step": 0, **evaluate(model, tok, dev, args.eval_batch)})
 
     for step in range(1, args.steps + 1):
         t0 = time.time()
@@ -149,7 +151,7 @@ def main():
         row = {"step": step, **step_stats(batch, examples, args.k), **stats,
                "seconds": time.time() - t0, "gpu_mem_gb": torch.cuda.max_memory_allocated() / 1e9}
         if step % args.eval_every == 0:
-            row.update(evaluate(model, tok, dev))
+            row.update(evaluate(model, tok, dev, args.eval_batch))
             model.save_pretrained(f"{args.out}/step{step}")
         log_row(log, row)
 
