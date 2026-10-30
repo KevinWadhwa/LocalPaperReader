@@ -10,7 +10,7 @@ from qasper.abstain import subtype, twins
 from qasper.evaluate import load_model
 from qasper.reward import ABSTAIN
 
-LAYER = 20                                  # hidden_states[20]: the output of decoder layer 20 of 28
+DEPTH = 20 / 28                             # hidden_states[20] of the 1.7B's 28 layers; the same depth elsewhere (26 of 36)
 SHOWN = ("answer", "ungrounded")            # outcomes that pass the rules; the verifier decides on these
 
 
@@ -31,11 +31,12 @@ def read(path):
 
 
 class Tap:
-    """hidden_states[LAYER] (decoder layer LAYER's output) at position `pos` only: output_hidden_states would hold
-    every layer's states for the whole sequence."""
+    """hidden_states[layer] (decoder layer `layer`'s output) at position `pos` only: output_hidden_states would hold
+    every layer's states for the whole sequence. layer = round(DEPTH * number of layers)."""
     def __init__(self, model):
-        self.pos, self.h = None, None
-        model.get_base_model().model.layers[LAYER - 1].register_forward_hook(self)
+        layers = model.get_base_model().model.layers
+        self.layer, self.pos, self.h = round(DEPTH * len(layers)), None, None
+        layers[self.layer - 1].register_forward_hook(self)
 
     def __call__(self, module, args, output):
         h = output[0] if isinstance(output, tuple) else output
@@ -44,7 +45,8 @@ class Tap:
 
 @torch.no_grad()
 def sft_pass(model, tok, examples, batch_size, tap):
-    """evaluate.abstain_logps with the same batches, also returning the layer-LAYER state at the last prompt token."""
+    """evaluate.abstain_logps with the same batches, also returning the probe layer's hidden state at the last
+    prompt token."""
     comp = tok(f"<answer>{ABSTAIN}</answer><|im_end|>", add_special_tokens=False,
                return_tensors="pt")["input_ids"].to(model.device)
     C = comp.shape[1]
@@ -79,8 +81,8 @@ def answer_end_ids(tok, prompt, output):
 
 @torch.no_grad()
 def generator_pass(model, tok, examples, outputs, batch_size, dim, tap):
-    """Layer-LAYER state at the end of </answer>, the generator teacher-forced over prompt + its own output.
-    NaN rows where the output has no </answer>."""
+    """The probe layer's hidden state at the end of </answer>, the generator teacher-forced over prompt + its own
+    output. NaN rows where the output has no </answer>."""
     seqs, overrun = zip(*(answer_end_ids(tok, e.prompt, o) for e, o in zip(examples, outputs)))
     order = sorted((i for i, s in enumerate(seqs) if s), key=lambda i: len(seqs[i]))
     states = np.full((len(seqs), dim), np.nan, dtype=np.float32)
@@ -127,6 +129,7 @@ def main():
         "rebuilt prompts and twins don't match the eval"
 
     tap = Tap(model)
+    print(f"probe layer: hidden_states[{tap.layer}]")
     with model.disable_adapter():
         lp, h_prompt = sft_pass(model, tok, rows, args.batch_size, tap)
     check_stored(args, recs, lp)
@@ -140,7 +143,7 @@ def main():
              kind=np.array([r["kind"] for r in recs]), outcome=np.array([r["outcome"] for r in recs]),
              shown=np.array([r["outcome"] in SHOWN for r in recs]),
              raw_f1=np.array([r.get("raw_f1", np.nan) for r in recs]),
-             logp_abstain=lp, h_prompt=h_prompt, h_answer=h_answer)
+             logp_abstain=lp, h_prompt=h_prompt, h_answer=h_answer, layer=tap.layer)
     print(f"saved {path}: {len(rows)} rows ({len(examples)} questions, {len(pairs)} twins), "
           f"{sum(r['outcome'] in SHOWN for r in recs)} pass the rules")
 
