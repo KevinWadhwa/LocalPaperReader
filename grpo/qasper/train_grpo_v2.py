@@ -30,6 +30,7 @@ def parse_args():
     p.add_argument("--a", type=float, default=0.1) 
     p.add_argument("--lr", type=float, default=2e-5) 
     p.add_argument("--norm_len", default=None)
+    p.add_argument("--abstain_share", type=float, default=ABSTAIN_SHARE)   # 0: answer questions only, a verifier decides
     p.add_argument("--temperature", type=float, default=0.7)
     p.add_argument("--dtype", default="fp32", choices=["bf16", "fp32"])  # fp32: LoRA's small changes aren't rounded away
     p.add_argument("--trace", action="store_true")              # log the exact split of each update (core/trace.py)
@@ -62,14 +63,14 @@ def evaluate(model, tok, dev):
     return {"eval_" + k: v for k, v in m.items() if isinstance(v, float)}
 
 
-def build_mix(tok, rng):
+def build_mix(tok, rng, abstain_share):
     """Answer targets with a buildable target, unanswerable questions, and abstain twins of answer targets.
-    Abstains are ABSTAIN_SHARE of the prompts, UNANSWERABLE_SHARE of them unanswerable; twins are drawn per
+    Abstains are abstain_share of the prompts, UNANSWERABLE_SHARE of them unanswerable; twins are drawn per
     question kind in proportion to its answers. A twin and its original form one unit, shuffled together."""
     train, _ = build_examples("train", tok)
     answers = [e for e in train if e.target == "answer" and build_target(e)[0] is not None]
     unans = [e for e in train if e.question.label == "unanswerable"]
-    n_abstain = round(ABSTAIN_SHARE / (1 - ABSTAIN_SHARE) * len(answers))
+    n_abstain = round(abstain_share / (1 - abstain_share) * len(answers))
     n_unans = min(round(UNANSWERABLE_SHARE * n_abstain), len(unans))
     pairs, kinds = twins(answers, "train", tok, drop_long=True), Counter(e.question.kind for e in answers)
     chosen = []
@@ -115,7 +116,7 @@ def main():
 
     dev_all = build_examples("dev", tok)[0]
     dev = rng.sample(dev_all, 200)                                       # drawn first: the same dev sample as train_grpo
-    train = pack(build_mix(tok, rng), args.questions)
+    train = pack(build_mix(tok, rng, args.abstain_share), args.questions)
     fmt = lambda tok, e: e.prompt
     rew = lambda text, e: reward(text, e.question, e.paper, e.p_to_idx, e.target, e.gold_ps, a=args.a)[0]
     lab = lambda text, e: (e.target, reward(text, e.question, e.paper, e.p_to_idx, e.target, e.gold_ps, a=args.a)[1])
