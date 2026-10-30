@@ -120,6 +120,8 @@ def measures(s, rows, pairs, d):
     out["unanswerable_auc"] = auc(s[good], s[shown[d["subtype"][shown] == "unanswerable"]])
     o, t = pairs[:, 0], pairs[:, 1]
     out["twin_pair_auc"] = np.mean((s[o] > s[t]) + 0.5 * (s[o] == s[t]))
+    o, t = o[d["correct"][o]], t[d["correct"][o]]                       # a wrong original should be hidden too
+    out["twin_pair_auc_correct"] = np.mean((s[o] > s[t]) + 0.5 * (s[o] == s[t]))
     out["aurc"] = np.nanmean(r)                                          # up to the highest coverage the rules allow
     return out
 
@@ -155,14 +157,16 @@ def diff(boots, a, b, m):
     return [x[a][m] - x[b][m] for x in boots]
 
 
-def verdict(point, boots, n):
-    """The win rule: risk@30 lower at WIN, twin-pair AUC not lower (point), no guard significantly worse at GUARD."""
+def verdict(boots, n):
+    """The win rule (v2, fixed 2026-10-30 before new data): risk@30 lower at WIN; twin-pair AUC on clear-correct
+    originals non-inferior (lower end at GUARD above TWIN_MARGIN); no guard significantly worse at GUARD."""
     worse = {"natural_auc": interval(diff(boots, n, "baseline", "natural_auc"), GUARD)[1] < 0,
              "risk@10": interval(diff(boots, n, "baseline", "risk@10"), GUARD)[0] > 0,
              "risk@50": interval(diff(boots, n, "baseline", "risk@50"), GUARD)[0] > 0,
              "unanswerable_auc": interval(diff(boots, n, "baseline", "unanswerable_auc"), GUARD)[1] < 0}
     rule = {"risk@30_lower": bool(interval(diff(boots, n, "baseline", "risk@30"), WIN)[1] < 0),
-            "twin_pair_auc_not_lower": bool(point[n]["twin_pair_auc"] >= point["baseline"]["twin_pair_auc"]),
+            "twin_correct_noninferior": bool(interval(diff(boots, n, "baseline", "twin_pair_auc_correct"), GUARD)[0]
+                                             > TWIN_MARGIN),
             "no_guard_worse": not any(worse.values())}
     return {"rule": rule, "guard_worse": {k: bool(v) for k, v in worse.items()}, "wins": all(rule.values())}
 
@@ -170,7 +174,7 @@ def verdict(point, boots, n):
 def choose(verdicts, boots):
     """One winner: it. Both: the stacked one only if its risk@30 is significantly lower (GUARD), else the probe.
     Neither: the abstain score with a threshold."""
-    wins = [n for n in NAMES[1:] if verdicts[n]["wins"]]
+    wins = [n for n in verdicts if verdicts[n]["wins"]]
     if len(wins) < 2:
         return wins[0] if wins else "baseline"
     return NAMES[2] if interval(diff(boots, NAMES[2], NAMES[1], "risk@30"), GUARD)[1] < 0 else NAMES[1]
@@ -196,9 +200,10 @@ def main():
     boots = bootstrap(s, d, pairs)
 
     print(f"\nnatural questions; coverage = share of all {nat.sum()} shown; risk = wrong / clear among shown")
-    print(f"  {'verifier':22s}" + "".join(f"{c:>17s}" for c in COLS))
+    print(f"  {'verifier':22s}" + "".join(f"{c:>22s}" for c in COLS))
     for n in NAMES:
-        print(f"  {n:22s}" + "".join(f"{point[n][c]:17.3f}" for c in COLS))
+        print(f"  {n:22s}" + "".join(f"{point[n][c]:22.3f}" for c in COLS))
+    tested = NAMES[2:] if args.same_sft else NAMES[1:]
     verdicts, diffs = {}, {}
     for n in NAMES[1:]:
         print(f"\n{n} - baseline (risk@30 at {WIN:.1%}, the rest at {GUARD:.0%}; paired bootstrap over papers)")
@@ -208,7 +213,10 @@ def main():
             lo, hi = interval(diff(boots, n, "baseline", c), lvl)
             diffs[n][c] = {"diff": float(point[n][c] - point["baseline"][c]), "level": lvl, "lo": float(lo), "hi": float(hi)}
             print(f"  {c:17s} {point[n][c] - point['baseline'][c]:+.3f}  [{lo:+.3f}, {hi:+.3f}]")
-        verdicts[n] = verdict(point, boots, n)
+        if n not in tested:
+            print("  reported, not tested: these features were already tested on this SFT")
+            continue
+        verdicts[n] = verdict(boots, n)
         print(f"  win rule {verdicts[n]['rule']}  guard worse {verdicts[n]['guard_worse']}  -> "
               f"{'WINS' if verdicts[n]['wins'] else 'does not win'}")
     chosen = choose(verdicts, boots)
@@ -246,7 +254,7 @@ def main():
     report = {"point": {n: {c: float(v) for c, v in point[n].items()} for n in NAMES}, "diff_vs_baseline": diffs,
               "verdicts": verdicts, "chosen": chosen, "folds": log, "auc_by_type": by_type,
               "settings": {"pca_dim": PCA_DIM, "cs": CS.tolist(), "combiner_c": COMBINER_C, "win": WIN, "guard": GUARD,
-                           "n_boot": N_BOOT, "seed": SEED}}
+                           "twin_margin": TWIN_MARGIN, "tested": list(tested), "n_boot": N_BOOT, "seed": SEED}}
     json.dump(report, open(f"{base}_report.json", "w"), indent=2)
     print(f"\nsaved {base}_scores.jsonl and {base}_report.json")
 
