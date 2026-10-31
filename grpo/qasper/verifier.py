@@ -37,7 +37,7 @@ def parse_args():
 def load(path):
     d = np.load(path)
     keep = d["subtype"] != "contaminated"                               # their abstain labels are wrong
-    d = {k: d[k][keep] for k in d.files}
+    d = {k: d[k][keep] if d[k].ndim else d[k] for k in d.files}        # 0-d fields (the probe layer) kept as is
     d["y"] = np.where(d["target"] == "abstain", 0.0, d["raw_f1"])       # any answer to an abstain prompt is wrong
     assert not np.isnan(d["y"]).any()
     d["correct"], d["wrong"] = d["y"] >= 0.6, d["y"] <= 0.2              # yes/no F1 is an exact match: 0 or 1
