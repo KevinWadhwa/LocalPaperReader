@@ -20,7 +20,8 @@ TWIN_MARGIN = -0.10                         # twin guard: non-inferiority on cle
 RISK_BAR, FALLBACK = 0.15, 0.30             # threshold rule: on dev, the highest coverage with risk <= 15% at every
 GRID = [round(0.05 * i, 2) for i in range(2, 21)]   # grid point from 10% up; if none, 30%. Its tau is applied to test
 N_BOOT, SEED = 2000, 0
-NAMES = ("baseline", "prompt_probe", "abstain+answer_probe")
+NAMES = ("baseline", "prompt_probe", "abstain+answer_probe")   # +"abstain+answer_probe+agreement" when --agreement
+AGREEMENT_NAME = "abstain+answer_probe+agreement"
 COLS = ("risk@10", "risk@30", "risk@50", "natural_auc", "unanswerable_auc", "twin_pair_auc", "twin_pair_auc_correct",
         "aurc")
 
@@ -28,16 +29,33 @@ COLS = ("risk@10", "risk@30", "risk@50", "natural_auc", "unanswerable_auc", "twi
 def parse_args():
     ap = argparse.ArgumentParser()
     ap.add_argument("--features", default="runs/verifier/merged_runs_grpo_v2_1.7b_final_dev.npz")
+    ap.add_argument("--agreement", default=None)         # {tag}_{split}_agreement.npz; enables the 4th challenger
     ap.add_argument("--same_sft", action="store_true")   # generator on SFT v2 1.7B: baseline and prompt-probe features
                                                          # are the ones already tested, so only challenger 2 is re-tested
     ap.add_argument("--test", default=None)              # test features: scored once, at the end, at the dev tau
+    ap.add_argument("--agreement_test", default=None)    # {tag}_test_agreement.npz; needed if chosen uses agreement
     return ap.parse_args()
 
 
-def load(path):
-    d = np.load(path)
+def merge_agreement(d, path):
+    """Attach the self-consistency agreement column, keyed strictly on (question_id, twin), before any row is
+    dropped. Asserts every shown row got a value, so a mismatch can't slip through as a silent NaN."""
+    a = np.load(path)
+    key = lambda q, t: (str(q), bool(t))
+    by_key = {key(q, t): v for q, t, v in zip(a["question_id"], a["twin"], a["agreement"])}
+    agree = np.array([by_key.get(key(q, t), np.nan) for q, t in zip(d["question_id"], d["twin"])])
+    missing = d["shown"] & np.isnan(agree)
+    assert not missing.any(), f"{int(missing.sum())} shown rows have no agreement value (key mismatch)"
+    d["agreement"] = agree
+
+
+def load(path, agreement_path=None):
+    raw = np.load(path)
+    d = {k: raw[k] for k in raw.files}
+    if agreement_path:                                                  # merge on the full rows, before dropping any
+        merge_agreement(d, agreement_path)
     keep = d["subtype"] != "contaminated"                               # their abstain labels are wrong
-    d = {k: d[k][keep] if d[k].ndim else d[k] for k in d.files}        # 0-d fields (the probe layer) kept as is
+    d = {k: v[keep] if getattr(v, "ndim", 0) else v for k, v in d.items()}   # 0-d fields (the probe layer) kept as is
     d["y"] = np.where(d["target"] == "abstain", 0.0, d["raw_f1"])       # any answer to an abstain prompt is wrong
     assert not np.isnan(d["y"]).any()
     d["correct"], d["wrong"] = d["y"] >= 0.6, d["y"] <= 0.2              # yes/no F1 is an exact match: 0 or 1
@@ -69,13 +87,22 @@ def probe_score(fits, X):
     return np.mean([lr.decision_function(pre.transform(X)) for pre, lr in fits], axis=0)
 
 
+def stack_inputs(name, fits, d, rows):
+    """Combiner inputs for a stacked challenger on `rows`: abstain score, answer probe, and (for the agreement
+    variant) the self-consistency column."""
+    cols = [d["logp_abstain"][rows], probe_score(fits, d["h_answer"][rows])]
+    if name == "abstain+answer_probe+agreement":
+        cols.append(d["agreement"][rows])
+    return np.column_stack(cols)
+
+
 def fold_score(name, part, d, rows):
-    """One outer fold's fitted challenger scored on `rows`: prompt_probe's part is its inner probes, the stacked
+    """One outer fold's fitted challenger scored on `rows`: prompt_probe's part is its inner probes, a stacked
     one's is (inner probes, combiner)."""
     if name == "prompt_probe":
         return probe_score(part, d["h_prompt"][rows])
     fits, comb = part
-    return comb.decision_function(np.column_stack([d["logp_abstain"][rows], probe_score(fits, d["h_answer"][rows])]))
+    return comb.decision_function(stack_inputs(name, fits, d, rows))
 
 
 def fit_scores(d):
@@ -93,14 +120,23 @@ def fit_scores(d):
         _, fits_p, c1 = inner(d["h_prompt"], tr, d)
         oof, fits_a, c2 = inner(d["h_answer"], tr, d)                    # stage 1: out-of-fold probe scores
         trc = tr[d["clear"][tr]]
-        comb = make_pipeline(StandardScaler(), LogisticRegression(C=COMBINER_C, max_iter=5000))
-        comb.fit(np.column_stack([d["logp_abstain"][trc], oof[trc]]), d["correct"][trc])   # stage 2
-        parts = {"prompt_probe": fits_p, "abstain+answer_probe": (fits_a, comb)}
+        parts = {"prompt_probe": fits_p}
+        combs = {}
+        for n in ("abstain+answer_probe", "abstain+answer_probe+agreement"):
+            if n not in NAMES:
+                continue
+            cols = [d["logp_abstain"][trc], oof[trc]]                    # same answer-probe OOF scores for both
+            if n == "abstain+answer_probe+agreement":
+                cols.append(d["agreement"][trc])
+            comb = make_pipeline(StandardScaler(), LogisticRegression(C=COMBINER_C, max_iter=5000))
+            comb.fit(np.column_stack(cols), d["correct"][trc])          # stage 2
+            parts[n] = (fits_a, comb)
+            combs[n] = comb
         for n in NAMES[1:]:
             s[n][te] = fold_score(n, parts[n], d, te)
         models.append(parts)
         log.append({"fold": k, "C_prompt_probe": float(c1), "C_answer_probe": float(c2),
-                    "combiner_coef_abstain_probe": [round(float(c), 3) for c in comb[-1].coef_[0]]})
+                    **{f"combiner_coef_{n}": [round(float(c), 3) for c in combs[n][-1].coef_[0]] for n in combs}})
     return s, fold, log, models
 
 
@@ -187,12 +223,17 @@ def verdict(boots, n):
 
 
 def choose(verdicts, boots):
-    """One winner: it. Both: the stacked one only if its risk@30 is significantly lower (GUARD), else the probe.
-    Neither: the abstain score with a threshold."""
-    wins = [n for n in verdicts if verdicts[n]["wins"]]
-    if len(wins) < 2:
-        return wins[0] if wins else "baseline"
-    return NAMES[2] if interval(diff(boots, NAMES[2], NAMES[1], "risk@30"), GUARD)[1] < 0 else NAMES[1]
+    """No winner: the abstain score with a threshold. One: it. Several: take the richest-stacked winner (NAMES is
+    ordered simplest first) only where its risk@30 is significantly lower (GUARD) than the previous winner's, so a
+    heavier feature set must earn its place; otherwise keep the simpler one."""
+    wins = [n for n in NAMES if n in verdicts and verdicts[n]["wins"]]
+    if not wins:
+        return "baseline"
+    chosen = wins[0]
+    for n in wins[1:]:
+        if interval(diff(boots, n, chosen, "risk@30"), GUARD)[1] < 0:
+            chosen = n
+    return chosen
 
 
 def pick(s, d):
@@ -244,8 +285,11 @@ def test_scores(name, t, models):
 
 
 def main():
+    global NAMES
     args = parse_args()
-    d = load(args.features)
+    d = load(args.features, args.agreement)
+    if args.agreement:                                                  # enable the stacked agreement challenger
+        NAMES = NAMES + (AGREEMENT_NAME,)
     base = args.features[:-len(".npz")]
     nat, sh = ~d["twin"], d["shown"]
     pairs = twin_pairs(d)
@@ -256,8 +300,9 @@ def main():
     s, fold, log, models = fit_scores(d)
     for f in log:
         edge = [k for k in ("C_prompt_probe", "C_answer_probe") if f[k] in (CS[0], CS[-1])]
+        coefs = " ".join(f"{k[len('combiner_coef_'):]} {f[k]}" for k in f if k.startswith("combiner_coef_"))
         print(f"  fold {f['fold']}: C prompt probe {f['C_prompt_probe']:g}, answer probe {f['C_answer_probe']:g}, "
-              f"combiner [abstain, probe] {f['combiner_coef_abstain_probe']}" + (f"  (grid edge: {edge})" if edge else ""))
+              f"combiner coef {coefs}" + (f"  (grid edge: {edge})" if edge else ""))
     rows = np.arange(len(d["y"]))
     point = {n: measures(s[n], rows, pairs, d) for n in NAMES}
     boots = bootstrap(s, d, pairs)
@@ -328,7 +373,9 @@ def main():
     print(f"\nsaved {base}_scores.jsonl and {base}_report.json")
 
     if args.test:                                                        # once, at the end: the dev tau, unchanged
-        t = load(args.test)
+        if chosen == AGREEMENT_NAME and not args.agreement_test:
+            raise SystemExit("chosen verifier uses agreement: pass --agreement_test for the test features")
+        t = load(args.test, args.agreement_test)
         result = {"verifier": chosen, "tau": tau, **at_tau(test_scores(chosen, t, models), t, tau)}
         print(f"\nTEST, {chosen} at the dev tau: coverage {result['coverage']:.3f} [{result['coverage_ci'][0]:.3f}, "
               f"{result['coverage_ci'][1]:.3f}], risk {result['risk']:.3f} [{result['risk_ci'][0]:.3f}, "
