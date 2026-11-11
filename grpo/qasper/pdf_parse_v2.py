@@ -43,45 +43,58 @@ def _norm(s):
     return re.sub(r"(\w)-\s+(\w)", r"\1\2", s)
 
 
-def _lines(page, margin):
-    """page.chars -> one entry per visual line, keeping font size and a bold flag.
+# These PDFs encode word gaps as x-offsets, not space chars: all three test papers have ZERO
+# literal spaces, so joining page.chars gives "Wecrowdsourceddogmatism...". pdfplumber infers the
+# gaps given a tolerance, hence extract_words rather than page.chars.
+X_TOL = 1.0
 
-    pdfplumber gives characters, not lines, so grouping is ours. extract_text() would be shorter
-    but discards the sizes, which are the only signal for heading-vs-body.
+
+def _gutter(page):
+    """x of the two-column gutter, or None for a single-column page.
+
+    The emptiest 10pt bin in the middle third, and only if it is well below average density, so
+    full-width pages (wide figures, tables) are left unsplit rather than cut in half. Measured on
+    the test papers: a stable ~305 on two-column pages, None where a float spans the page.
     """
-    chars = [c for c in page.chars if margin < c["top"] < page.height - margin]
+    xs = [c["x0"] for c in page.chars]
+    if not xs:
+        return None
+    bins = Counter(int(x // 10) * 10 for x in xs)
+    lo, hi = int(page.width * 0.35 // 10) * 10, int(page.width * 0.65 // 10) * 10
+    count, b = min((bins.get(k, 0), k) for k in range(lo, hi + 10, 10))
+    return b + 5 if count < (len(xs) / (page.width / 10)) * 0.35 else None
+
+
+def _column_lines(page, x0, x1, margin):
+    """Lines of one column, each with median font size and a bold flag. extract_words does the
+    space inference and left-to-right order; it also carries the font metadata that heading
+    detection needs and extract_text discards."""
+    box = page.crop((x0, margin, x1, page.height - margin))
+    words = box.extract_words(extra_attrs=["size", "fontname"], x_tolerance=X_TOL)
     rows = {}
-    for c in chars:
-        rows.setdefault(round(c["top"] / 3), []).append(c)   # 3pt bucket tolerates baseline wobble
+    for w in words:
+        rows.setdefault(round(w["top"] / 3), []).append(w)   # 3pt bucket tolerates baseline wobble
     out = []
     for key in sorted(rows):
-        cs = sorted(rows[key], key=lambda c: c["x0"])
-        text = "".join(c["text"] for c in cs)
-        if not text.strip():
+        ws = sorted(rows[key], key=lambda w: w["x0"])
+        text = " ".join(w["text"] for w in ws).strip()
+        if not text:
             continue
-        fonts = " ".join(c.get("fontname", "") for c in cs).lower()
-        out.append({"top": min(c["top"] for c in cs), "x0": min(c["x0"] for c in cs),
-                    "size": statistics.median([c["size"] for c in cs]),
-                    "bold": "bold" in fonts or "black" in fonts, "text": text})
+        fonts = " ".join(w.get("fontname", "") for w in ws).lower()
+        out.append({"top": min(w["top"] for w in ws), "x0": min(w["x0"] for w in ws),
+                    "size": statistics.median([w["size"] for w in ws]),
+                    # "-medi" because this corpus's bold is NimbusRomNo9L-Medi: no "bold"/"black"
+                    "bold": any(k in fonts for k in ("bold", "black", "-medi")), "text": text})
     return out
 
 
-def _split_columns(lines, page_width):
-    """Lines in READING order. Two-column papers otherwise sort a left line together with the
-    right line beside it and the paragraphs interleave into word salad. Emits all of the left
-    column before any of the right."""
-    if not lines:
-        return []
-    mid = page_width / 2
-    left = [l for l in lines if l["x0"] < mid * 0.9]
-    right = [l for l in lines if l["x0"] > mid * 1.05]
-    if len(left) >= 4 and len(right) >= 4 and len(left) + len(right) > 0.8 * len(lines):
-        body_top = min(l["top"] for l in left + right)
-        full = [l for l in lines if l not in left and l not in right]   # titles, wide tables
-        return (sorted([l for l in full if l["top"] < body_top], key=lambda l: l["top"])
-                + sorted(left, key=lambda l: l["top"]) + sorted(right, key=lambda l: l["top"])
-                + sorted([l for l in full if l["top"] >= body_top], key=lambda l: l["top"]))
-    return sorted(lines, key=lambda l: l["top"])
+def _page_lines(page, margin):
+    """A page's lines in READING order: left column fully, then right. Otherwise a left-column
+    line sorts with the right-column line beside it and paragraphs interleave mid-sentence."""
+    g = _gutter(page)
+    if g is None:
+        return _column_lines(page, 0, page.width, margin)
+    return _column_lines(page, 0, g, margin) + _column_lines(page, g, page.width, margin)
 
 
 def _drop_running_heads(pages_lines):
@@ -134,14 +147,13 @@ def parse_pdf_v2(path, paper_id=None):
     pdf_parse.parse_pdf so callers can swap backends."""
     import pdfplumber                      # local: only this backend needs the dependency
 
-    pages_lines, widths = [], []
+    pages_lines = []
     with pdfplumber.open(path) as pdf:
         for page in pdf.pages:
-            pages_lines.append(_lines(page, page.height * MARGIN_FRAC))
-            widths.append(page.width)
+            pages_lines.append(_page_lines(page, page.height * MARGIN_FRAC))
     pages_lines = _drop_running_heads(pages_lines)
 
-    all_lines = [l for lines, w in zip(pages_lines, widths) for l in _split_columns(lines, w)]
+    all_lines = [l for lines in pages_lines for l in lines]
     if not all_lines:
         raise RuntimeError(f"no extractable text in {path} (scanned image? needs OCR)")
 
