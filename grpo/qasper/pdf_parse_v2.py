@@ -65,12 +65,16 @@ def _gutter(page):
     return b + 5 if count < (len(xs) / (page.width / 10)) * 0.35 else None
 
 
-def _column_lines(page, x0, x1, margin):
+def _column_lines(page, x0, x1, margin, top=None):
     """Lines of one column, each with median font size and a bold flag. extract_words does the
     space inference and left-to-right order; it also carries the font metadata that heading
-    detection needs and extract_text discards."""
-    box = page.crop((x0, margin, x1, page.height - margin))
-    words = box.extract_words(extra_attrs=["size", "fontname"], x_tolerance=X_TOL)
+    detection needs and extract_text discards. `top` overrides where the column starts, to skip
+    front matter; the BOTTOM stays at the margin either way."""
+    box = page.crop((x0, margin if top is None else top, x1, page.height - margin))
+    # upright=False drops rotated text, i.e. the arXiv id stamped down the left margin, which
+    # otherwise leaks stray single chars into paragraphs and section names.
+    words = [w for w in box.extract_words(extra_attrs=["size", "fontname", "upright"],
+                                          x_tolerance=X_TOL) if w.get("upright", True)]
     rows = {}
     for w in words:
         rows.setdefault(round(w["top"] / 3), []).append(w)   # 3pt bucket tolerates baseline wobble
@@ -88,13 +92,52 @@ def _column_lines(page, x0, x1, margin):
     return out
 
 
-def _page_lines(page, margin):
+def _page_lines(page, margin, top=None):
     """A page's lines in READING order: left column fully, then right. Otherwise a left-column
-    line sorts with the right-column line beside it and paragraphs interleave mid-sentence."""
+    line sorts with the right-column line beside it and paragraphs interleave mid-sentence.
+    `top` starts the page below already-consumed front matter."""
     g = _gutter(page)
     if g is None:
-        return _column_lines(page, 0, page.width, margin)
-    return _column_lines(page, 0, g, margin) + _column_lines(page, g, page.width, margin)
+        return _column_lines(page, 0, page.width, margin, top)
+    left = _column_lines(page, 0, g, margin, top)
+    right = _column_lines(page, g, page.width, margin, top)
+    # A thin column means the gutter was spurious (a full-width float, or front matter that
+    # straddles it and comes back truncated on both sides), so read the page whole instead.
+    if len(left) < 4 or len(right) < 4:
+        return _column_lines(page, 0, page.width, margin, top)
+    return left + right
+
+
+def _front_matter(page, margin):
+    """Page 1's full-width head: (title, abstract, body_top).
+
+    The title/author/abstract region spans the page while the body below it is two-column, so a
+    single column split truncates the title mid-word ("Identifying Dogmatism in Soci"). Read it
+    full-width: title = the largest-font line, abstract = everything between the Abstract heading
+    and the next heading. body_top is where the two-column body starts.
+    """
+    full = _column_lines(page, 0, page.width, margin)
+    if not full:
+        return "", "", margin
+    title = _norm(max(full, key=lambda l: l["size"])["text"]).strip()
+
+    head = next((l for l in full if re.match(r"^abstract\b", l["text"], re.I)), None)
+    if head is None:                                    # no Abstract heading: nothing to consume
+        return title, "", margin
+    # The abstract is in ONE column while the introduction already runs in the other, so reading
+    # full-width splices them ("...We explore linguistic features S the opposite. Can we..."):
+    # take it from the abstract heading's own column.
+    g = _gutter(page)
+    x0, x1 = (0, page.width) if g is None else ((0, g) if head["x0"] < g else (g, page.width))
+    col = [l for l in _column_lines(page, x0, x1, margin) if l["top"] > head["top"]]
+    body_size = Counter(round(l["size"] * 2) / 2 for l in col).most_common(1)[0][0] if col else 10
+    parts = []
+    for l in col:
+        # stop at the next heading: larger than body, or a short bold line
+        if l["size"] > body_size + 0.5 or (l["bold"] and len(l["text"].split()) <= 8):
+            return title, _clean(_norm(" ".join(parts))), l["top"]
+        parts.append(l["text"])
+    return title, _clean(_norm(" ".join(parts))), col[-1]["top"] if col else margin
 
 
 def _drop_running_heads(pages_lines):
@@ -149,8 +192,13 @@ def parse_pdf_v2(path, paper_id=None):
 
     pages_lines = []
     with pdfplumber.open(path) as pdf:
-        for page in pdf.pages:
-            pages_lines.append(_page_lines(page, page.height * MARGIN_FRAC))
+        for i, page in enumerate(pdf.pages):
+            margin = page.height * MARGIN_FRAC
+            if i == 0:
+                title, abstract, body_top = _front_matter(page, margin)
+                pages_lines.append(_page_lines(page, margin, top=body_top))
+            else:
+                pages_lines.append(_page_lines(page, margin))
     pages_lines = _drop_running_heads(pages_lines)
 
     all_lines = [l for lines in pages_lines for l in lines]
@@ -162,11 +210,14 @@ def parse_pdf_v2(path, paper_id=None):
     size_mode = Counter(round(l["size"] * 2) / 2 for l in all_lines).most_common(1)[0][0]
     all_lines = [l for l in all_lines if l["size"] >= size_mode - 0.6]
 
-    title = _norm(all_lines[0]["text"]).strip() if all_lines else (paper_id or "")
-    paragraphs, sections, captions, abstract_parts = [], [], [], []
-    section = "Abstract"
+    title = title or (paper_id or "")
+    paragraphs, sections, captions = [], [], []
+    section = "Unnamed section"
+    if abstract:                                  # abstract is paragraph 0, as in QASPER
+        paragraphs.append(abstract)
+        sections.append("Abstract")
 
-    for block in _blocks(all_lines[1:], size_mode):
+    for block in _blocks(all_lines, size_mode):
         text = _clean(_norm(" ".join(l["text"] for l in block)))
         if not text:
             continue
@@ -176,13 +227,10 @@ def parse_pdf_v2(path, paper_id=None):
             captions.append(text)
             continue
         if _is_heading(block, size_mode):
-            name = _section_name(text)
-            section = "Abstract" if re.match(r"^abstract\b", name, re.I) else (name or "Unnamed section")
+            section = _section_name(text) or "Unnamed section"
             continue
         if len(text.split()) < MIN_WORDS:        # orphan equation lines, stray labels
             continue
-        if section == "Abstract":
-            abstract_parts.append(text)
         paragraphs.append(text)
         sections.append(section)
 
@@ -190,7 +238,7 @@ def parse_pdf_v2(path, paper_id=None):
         paragraphs.append(caption)
         sections.append(CAPTION_SECTION)
 
-    paper = Paper(paper_id or "pdf", title, " ".join(abstract_parts), paragraphs, sections)
+    paper = Paper(paper_id or "pdf", title, abstract, paragraphs, sections)
     return paper, {}
 
 
