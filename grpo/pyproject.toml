@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "localpaperreader-grpo"
+version = "0.1.0"
+description = "QASPER retrieval, SFT and GRPO training for grounded paper QA"
+requires-python = ">=3.10"
+# torch is left unpinned so Colab (or any machine) keeps its own CUDA build;
+# the rest match the localpaperreader env on hive/tide
+dependencies = [
+    "transformers==5.19.0",
+    "peft==0.21.2",
+    "trl==1.16.0",
+    "datasets==5.1.0",
+    "sentence-transformers==6.1.0",
+    "rank-bm25==0.2.2",
+    "huggingface_hub==1.33.0",
+]
+
+[tool.setuptools]
+packages = ["core", "qasper", "toy"]
