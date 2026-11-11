@@ -31,9 +31,9 @@ def highlight(q):
 
 
 CONFIDENCE_BADGE = {
-    "high": "🟢 **High confidence** — most likely correct.",
-    "medium": "🟡 **Medium confidence** — plausible; check it against the quoted passage.",
-    "low": "🟠 **Low confidence** — a lead, not an answer; verify against the quoted passage.",
+    "high": "🟢 **High confidence**: most likely correct.",
+    "medium": "🟡 **Medium confidence**: plausible; check it against the quoted passage.",
+    "low": "🟠 **Low confidence**: a lead, not an answer; verify against the quoted passage.",
 }
 
 
@@ -63,7 +63,8 @@ def main():
                     verifier_gguf=cfg.get("verifier_gguf"), generator_gguf=cfg.get("generator_gguf"),
                     n_gpu_layers=cfg.get("n_gpu_layers", -1),
                     n_ctx=cfg.get("n_ctx", 8192),
-                    verifier_n_ctx=cfg.get("verifier_n_ctx", 4096))
+                    verifier_n_ctx=cfg.get("verifier_n_ctx", 4096),
+                    tokenizer_path=cfg.get("tokenizer_path"))
     print(f"backend {reader.backend} on {reader.device}")
     placeholder_note = (" · confidence cutpoints are placeholders: every rule-passing answer is shown as low"
                         if cfg.get("tiers_placeholder") else "")

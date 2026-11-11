@@ -40,29 +40,7 @@ class GGUFBackend:
     """
     def __init__(self, verifier_gguf, generator_gguf, tok, n_ctx=8192, verifier_n_ctx=4096,
                  n_gpu_layers=-1, n_threads=8):
-        # The two models get DIFFERENT context sizes on purpose; do NOT collapse them into one.
-        #   generator (logits_all=False) -> 8192. No per-position logits buffer, so context is
-        #     nearly free, and the generator gate that PASSED on the Mac ran at 8192: its longest
-        #     dev prompt was 4953 tokens and scored f1 1.000 (== fp32), so nothing was truncated.
-        #     4096 would silently truncate ~1% of dev prompts and more of real uploaded papers.
-        #   verifier (logits_all=True) -> 4096, and do NOT raise it casually. llama-cpp-python
-        #     0.3.36 only fills llm.scores when logits_all=True, and it then allocates
-        #     (n_ctx, 151936) float32 ONCE IN Llama.__init__ and holds it for the object's whole
-        #     life. That is SUSTAINED RSS, not a peak, and it is sized to the ceiling, not to the
-        #     current prompt: 2.32GB at 4096, 2.90GB at 5120, 3.48GB at 6144, 4.64GB at 8192
-        #     (8192 OOM-killed the gate). So n_ctx here is a permanent memory bill.
-        #     Why not logits_all=False (which would cost only n_batch rows == 0.29GB)? Because in
-        #     0.3.36 Llama.eval's logits_all=False branch is literally `pass` — the logit copy is
-        #     commented out with "logits are only needed for logprobs which requires logits_all".
-        #     self.scores would stay all zeros and the abstain score would be silently wrong, not
-        #     an error. Verified by reading the installed source; re-check before changing this.
-        #   4096 does NOT fit all of dev: prompt+completion+BOS exceeds it on 5/904 rows (0.55%),
-        #     the longest 4970 tokens, and that is why a full-dev reader run at 4096 died at row
-        #     ~191 with "failed to find a memory slot for batch of size 512" (llama_decode 1).
-        #     The fix is abstain_score's _fit guard, NOT a bigger buffer: a user-uploaded paper can
-        #     out-length any ceiling we pick, so truncation is needed regardless, and once it
-        #     exists a bigger n_ctx only buys not-truncating those 5 rows for ~0.6-1.2GB resident.
-        #     Raise it only if truncation is shown to cost real accuracy. See _fit.
+        #different ctx for generator and verifier, verifier has fit method to enable truncations, otherwise too memory intensive for 0.5% of cases.
         import numpy as np
         from llama_cpp import Llama
         self.np = np
@@ -86,16 +64,9 @@ class GGUFBackend:
         """Truncate p_ids from the MIDDLE so p_ids + comp_ids fits verifier_n_ctx.
 
         Without this, an over-length prompt makes llama_decode return 1 ("failed to find a memory
-        slot for batch of size 512") and the whole run dies — that is exactly how the full-dev
-        reader check crashed at row ~191 when the verifier was at n_ctx 4096. Every dev prompt fits
-        at 6144, so this should never fire on dev; it exists because a user-uploaded paper can be
-        longer than anything in dev and the app must degrade instead of raising.
-
+        slot for batch of size 512") 
         Truncating the MIDDLE (context paragraphs), not the left, is deliberate: left-truncation
-        would eat the system instructions, and right-truncation would eat the question. Both would
-        change the distribution the abstain score is calibrated against far more than dropping some
-        retrieved context does. The score from a truncated prompt is still a real score, but it saw
-        less evidence, so it biases TOWARD abstaining (the safe direction for a grounded reader).
+        would eat the system instructions, and right-truncation would eat the question, so this biases TOWARD abstaining.
         """
         budget = self.verifier_n_ctx - len(self.comp_ids)
         if len(p_ids) <= budget:
@@ -170,17 +141,16 @@ def load_off_cuda(sft_path, adapter_path, device, dtype):
 class Reader:
     def __init__(self, sft_path, adapter_path, tiers, k=16, device="auto", dtype="fp32",
                  backend="hf", verifier_gguf=None, generator_gguf=None, n_gpu_layers=-1,
-                 n_ctx=8192, verifier_n_ctx=4096):
-        # tiers: {"high": s_hi, "medium": s_med, "low": s_low} on the verifier score s = -logP(abstain), picked on dev.
+                 n_ctx=8192, verifier_n_ctx=4096, tokenizer_path=None):
+        # tiers: {"high": s_hi, "medium": s_med, "low": s_low} on the verifier score s = -logP(abstain).
         # An answer is shown with a confidence label when s >= low, abstained when s < low.
         # backend "hf": the torch model (cutpoints from configs/reader_4b.json, dtype as calibrated, fp32).
-        # backend "gguf": the two quantised GGUFs (cutpoints from configs/reader_4b_gguf.json, RE-calibrated on Q4).
+        # backend "gguf": quantised GGUFs, re-calibrated on Q4).
         device = pick_device(device)
         self.backend = backend
         if backend == "gguf":
-            # the tokenizer is still the HF one (prompts/chat template built identically); the two model
-            # calls go through GGUFBackend. The embedder (retrieval) runs on CPU/MPS as usual.
-            self.tok = AutoTokenizer.from_pretrained(sft_path)
+            # the tokenizer is still the HF, the two model calls go through GGUFBackend. The embedder (retrieval) runs on CPU.
+            self.tok = AutoTokenizer.from_pretrained(tokenizer_path or sft_path)
             self.tok.padding_side = "left"
             self.gguf = GGUFBackend(verifier_gguf, generator_gguf, self.tok,
                                     n_ctx=n_ctx, verifier_n_ctx=verifier_n_ctx,
