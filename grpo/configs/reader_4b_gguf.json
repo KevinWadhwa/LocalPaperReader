@@ -1,0 +1,27 @@
+{
+  "sft_path": "runs/sft_v2_4b/merged",
+  "adapter_path": "runs/grpo_v2_4b/step80",
+  "tiers": {
+    "high": 2.939,
+    "medium": 2.426,
+    "low": 1.547
+  },
+  "k": 16,
+  "dtype": "fp32",
+  "grobid_url": "http://localhost:8070",
+  "backend": "gguf",
+  "verifier_gguf": "runs/gguf/verifier-q4km.gguf",
+  "generator_gguf": "runs/gguf/generator-q4km.gguf",
+  "calibrated_on": {
+    "fp32_selfcheck": [
+      3.477,
+      2.683,
+      1.575
+    ],
+    "quant_dev_npz": "runs/gguf/verifier_q4km_dev_scores.npz"
+  },
+  "device": "mps",
+  "n_gpu_layers": -1,
+  "n_ctx": 8192,
+  "verifier_n_ctx": 4096
+}

@@ -1,0 +1,8 @@
+{
+  "sft_path": "runs/sft_v2_4b/merged",
+  "adapter_path": "runs/grpo_v2_4b/step80",
+  "tiers": {"high": 3.477, "medium": 2.598, "low": 1.575},
+  "k": 16,
+  "dtype": "fp32",
+  "grobid_url": "http://localhost:8070"
+}
