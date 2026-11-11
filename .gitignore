@@ -1,9 +1,23 @@
+# --- caches and bytecode ---
 hf_cache/
 *.pyc
 __pycache__/
+
+# --- model and run artefacts (never in git) ---
 *.safetensors
 *.pt
+*.gguf
+*.npz
 lora/
+grpo/runs/
+grpo/data/
+
+# --- job output ---
+logs/
+grpo/logs/
+
+# --- bulk data formats, with configs as the deliberate exception ---
 *.jsonl
 *.json
-logs/
+!grpo/configs/
+!grpo/configs/*.json
