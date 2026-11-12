@@ -56,6 +56,40 @@ def repair_quotes(quotes, answer):
     return out, edits
 
 
+def teacher_forced_logp(llm, p_ids, comp_ids):
+    """log P(comp_ids | p_ids) from a llama-cpp-python Llama built with logits_all=False.
+
+    Llama.eval only keeps per-position logits with logits_all=True, and then holds an n_ctx x vocab float32 buffer
+    for the object's whole life (2.32 GB at n_ctx 4096) to score 16 tokens. This decodes the same n_batch chunks at
+    the same positions as Llama.eval, but flags logits only on the rows that predict a completion token (plus each
+    chunk's last token, as set_batch always does) and reads them with get_logits_ith. The forward pass is the same;
+    only the number of output rows differs. Uses llama-cpp-python 0.3.36's private _ctx/_batch: re-check it, and
+    re-run the old-vs-new equivalence gate, after any llama-cpp-python upgrade."""
+    import numpy as np
+    ids = list(p_ids) + list(comp_ids)
+    first = len(p_ids) - 1                      # the row at position first + j predicts comp_ids[j]
+    llm.reset()
+    llm._ctx.kv_cache_seq_rm(-1, 0, -1)         # what Llama.eval does after reset()
+    n_vocab, total = llm.n_vocab(), 0.0
+    for start in range(0, len(ids), llm.n_batch):          # the same chunks as Llama.eval
+        chunk = ids[start:start + llm.n_batch]
+        llm._batch.set_batch(batch=chunk, n_past=start, logits_all=False)
+        rows = [j for j in range(len(chunk)) if first <= start + j <= len(ids) - 2]
+        for j in rows:
+            llm._batch.batch.logits[j] = True               # logits only on the rows we score
+        llm._ctx.decode(llm._batch)
+        for j in rows:
+            ptr = llm._ctx.get_logits_ith(j)
+            if not ptr:
+                raise RuntimeError(f"llama.cpp returned no logits for batch row {j}")
+            row = np.ctypeslib.as_array(ptr, shape=(n_vocab,)).astype(np.float64)
+            row = row - row.max()
+            total += row[comp_ids[start + j - first]] - np.log(np.exp(row).sum())
+    llm.input_ids[:len(ids)] = ids              # leave the Llama's state as Llama.eval would
+    llm.n_tokens = len(ids)
+    return float(total)
+
+
 class GGUFBackend:
     """The two model calls (abstain_score, generate) through llama-cpp-python, for the laptop build.
 
@@ -63,8 +97,9 @@ class GGUFBackend:
     (adapter off) that produces the abstain score, `generator_gguf` is the SFT+GRPO merge (adapter on)
     that writes answers. Scoring and generation reproduce evaluate.py/gguf_verifier_gate exactly:
     tokenise the prompt with add_bos=True, special=True (create_completion's default special=False would
-    mangle the chat-template tokens), teacher-force the abstain completion with logits_all=True and sum
-    log_softmax over its tokens, generate greedily (temperature 0) stopping at <|im_end|>.
+    mangle the chat-template tokens), teacher-force the abstain completion and sum log_softmax over its
+    tokens (teacher_forced_logp: only the completion rows get logits, so no n_ctx x vocab buffer),
+    generate greedily (temperature 0) stopping at <|im_end|>.
 
     OS-portable: the only platform-specific piece is which llama-cpp-python wheel is installed (Metal on
     Mac, AVX2/CUDA on Windows/Linux). This class, and everything downstream of it, is identical.
@@ -72,15 +107,13 @@ class GGUFBackend:
     def __init__(self, verifier_gguf, generator_gguf, tok, n_ctx=8192, verifier_n_ctx=4096,
                  n_gpu_layers=-1, n_threads=8):
         #different ctx for generator and verifier, verifier has fit method to enable truncations, otherwise too memory intensive for 0.5% of cases.
-        import numpy as np
         from llama_cpp import Llama
-        self.np = np
         self.tok = tok
         self.comp_ids = tok(ABSTAIN_COMPLETION, add_special_tokens=False)["input_ids"]
         self.n_ctx, self.verifier_n_ctx = n_ctx, verifier_n_ctx
         common = dict(n_gpu_layers=n_gpu_layers, n_threads=n_threads, verbose=False)
-        self.verifier = Llama(model_path=verifier_gguf, logits_all=True,
-                              n_ctx=verifier_n_ctx, **common)   # teacher-forced logprobs
+        self.verifier = Llama(model_path=verifier_gguf, logits_all=False,
+                              n_ctx=verifier_n_ctx, **common)   # teacher-forced logprobs via teacher_forced_logp
         self.generator = Llama(model_path=generator_gguf, logits_all=False, n_ctx=n_ctx, **common)
         # tokeniser-drift guard: the GGUF must tokenise the abstain completion to the SAME ids as HF
         gg = self.verifier.tokenize(ABSTAIN_COMPLETION.encode(), add_bos=False, special=True)
@@ -111,17 +144,8 @@ class GGUFBackend:
     def abstain_score(self, prompt):
         """logP(<answer>ABSTAIN</answer><|im_end|> | prompt) through the verifier GGUF. Returns the same
         (negative) log-prob the HF path returns, so the reader's s = -lp and the tiers are unchanged."""
-        np = self.np
         p_ids = self.verifier.tokenize(prompt.encode(), add_bos=True, special=True)
-        p_ids = self._fit(p_ids)
-        self.verifier.reset()
-        self.verifier.eval(p_ids + self.comp_ids)
-        total = 0.0
-        for j, tok_id in enumerate(self.comp_ids):
-            row = np.array(self.verifier.scores[len(p_ids) + j - 1], dtype=np.float64)
-            row = row - row.max()
-            total += row[tok_id] - np.log(np.exp(row).sum())
-        return float(total)
+        return teacher_forced_logp(self.verifier, self._fit(p_ids), self.comp_ids)
 
     def generate(self, prompt):
         """Greedy generation through the generator GGUF (temperature 0 == evaluate.generate's do_sample=False),
