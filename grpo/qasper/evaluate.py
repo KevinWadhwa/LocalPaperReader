@@ -23,6 +23,7 @@ def parse_args():
     ap.add_argument("--out", default="runs/qasper_eval")
     ap.add_argument("--dtype", default="fp32", choices=["bf16", "fp32"])
     ap.add_argument("--no_twins", action="store_true")                  # skip the abstain-twin paired test
+    ap.add_argument("--k", type=int, default=16)                        # paragraphs retrieved per question
     return ap.parse_args()
 
 
@@ -137,10 +138,11 @@ def run_eval(model, tok, examples, batch_size, max_new_tokens):
 def main():
     args = parse_args()
     tok, model = load_model(args.model, args.adapter, args.dtype)
-    examples, _ = build_examples(args.split, tok, few_shot=args.few_shot)
+    examples, _ = build_examples(args.split, tok, k=args.k, few_shot=args.few_shot)
     if args.n:
         examples = examples[:args.n]
-    twin_ex = [] if args.no_twins else [t for _, t in twins(examples, args.split, tok, few_shot=args.few_shot)]
+    twin_ex = [] if args.no_twins else [t for _, t in twins(examples, args.split, tok, few_shot=args.few_shot,
+                                                             k=args.k)]
     records = run_eval(model, tok, examples + twin_ex, args.batch_size, args.max_new_tokens)
     for r, lp in zip(records, abstain_logps(model, tok, examples + twin_ex)):
         r["logp_abstain"] = lp
@@ -150,6 +152,8 @@ def main():
     tag = args.model.rstrip("/").split("/")[-1] + ("_fewshot" if args.few_shot else "")
     if args.adapter:
         tag += "_" + args.adapter.strip("/").replace("/", "_")
+    if args.k != 16:                                                     # k=16 keeps the old names
+        tag += f"_k{args.k}"
     os.makedirs(args.out, exist_ok=True)
     with open(f"{args.out}/{tag}_{args.split}_outputs.jsonl", "w") as f:
         for r in records[:len(examples)]:

@@ -40,12 +40,12 @@ def subtype(e):
     return "table_missing" if table_only(q) else "evidence_missing"
 
 
-def twin(e, ranking, tok, drop_long=False, few_shot=False):
+def twin(e, ranking, tok, drop_long=False, few_shot=False, k=16):
     """Abstain twin of an answer example: same question, gold paragraphs replaced by the next-ranked ones.
-    None if the new context could still answer it."""
+    None if the new context could still answer it. k: paragraphs shown, as in build_examples."""
     q = e.question
     gold = gold_idx(q)
-    context, p_to_idx = build_context(e.paper, [i for i in ranking[q.question_id] if i not in gold])
+    context, p_to_idx = build_context(e.paper, [i for i in ranking[q.question_id] if i not in gold], k)
     paras = [e.paper.paragraphs[i] for i in p_to_idx.values()]
     if extractive_in(q, paras) or near_copy(q, e.paper, paras):
         return None
@@ -60,8 +60,8 @@ def twin(e, ranking, tok, drop_long=False, few_shot=False):
     return Example(q, e.paper, p_to_idx, "abstain", [], prompt, n_tokens)
 
 
-def twins(examples, split, tok, drop_long=False, few_shot=False):
+def twins(examples, split, tok, drop_long=False, few_shot=False, k=16):
     """(answer example, its abstain twin) for every answer example that has a clean twin."""
     ranking = json.load(open(f"data/qasper/retrieval_{split}.json"))["ranking"]
-    pairs = [(e, twin(e, ranking, tok, drop_long, few_shot)) for e in examples if e.target == "answer"]
+    pairs = [(e, twin(e, ranking, tok, drop_long, few_shot, k)) for e in examples if e.target == "answer"]
     return [(e, t) for e, t in pairs if t is not None]
