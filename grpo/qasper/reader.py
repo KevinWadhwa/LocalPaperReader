@@ -11,18 +11,49 @@ from types import SimpleNamespace
 from sentence_transformers import SentenceTransformer
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from qasper.bm25 import PaperIndex
+from qasper.bm25 import PaperIndex, tokenize
 from qasper.context import build_context
 from qasper.dense import DenseRetriever
 from qasper.hybrid import HybridRetriever
 from qasper.pdf_parse import restore
 from qasper.prompt import format_prompt
-from qasper.reward import ABSTAIN, format_ok, norm_ws, parse, quote_check
+from qasper.reward import ABSTAIN, MAX_QUOTES, MAX_WORDS, MIN_WORDS, format_ok, norm_ws, parse, quote_check
 
 EMBEDDER = "BAAI/bge-small-en-v1.5"         # DenseRetriever's default
 MAX_NEW_TOKENS = 384
 BIBREF_RE = re.compile(r"\bBIBREF\d+\b")
 ABSTAIN_COMPLETION = f"<answer>{ABSTAIN}</answer><|im_end|>"
+
+
+def repair_quotes(quotes, answer):
+    """Bring quotes that break only the count/length rules back inside them, without changing the answer.
+
+    On 4B dev, 50 of the 57 format failures are long or extra quotes (a quote over 50 words, more than 3 quotes)
+    around an answer as good as the shown ones. Here: drop quotes under MIN_WORDS, cut a quote over MAX_WORDS to the
+    MAX_WORDS-word window sharing the most words with the answer (earliest on ties), drop repeats, keep the first
+    MAX_QUOTES. Every kept quote is a contiguous piece of one the model wrote, so format_ok and quote_check still
+    decide afterwards. The answer and the verifier score are untouched, so the tiers apply unchanged.
+    Returns (quotes, edits); edits is empty when nothing changed."""
+    need = set(tokenize(answer))
+    out, edits = [], []
+    for n, (p, q) in enumerate(quotes, 1):
+        words = q.split()
+        if len(words) < MIN_WORDS:
+            edits.append(f"dropped quote {n} ({len(words)} words)")
+            continue
+        if len(words) > MAX_WORDS:
+            start = max(range(len(words) - MAX_WORDS + 1),
+                        key=lambda s: (len(need & set(tokenize(" ".join(words[s:s + MAX_WORDS])))), -s))
+            q = " ".join(words[start:start + MAX_WORDS])
+            edits.append(f"cut quote {n} from {len(words)} to {MAX_WORDS} words")
+        if q in (x for _, x in out):
+            edits.append(f"dropped quote {n} (repeat)")
+            continue
+        out.append((p, q))
+    if len(out) > MAX_QUOTES:
+        edits.append(f"dropped {len(out) - MAX_QUOTES} quote(s) beyond {MAX_QUOTES}")
+        out = out[:MAX_QUOTES]
+    return out, edits
 
 
 class GGUFBackend:
@@ -141,9 +172,12 @@ def load_off_cuda(sft_path, adapter_path, device, dtype):
 class Reader:
     def __init__(self, sft_path, adapter_path, tiers, k=16, device="auto", dtype="fp32",
                  backend="hf", verifier_gguf=None, generator_gguf=None, n_gpu_layers=-1,
-                 n_ctx=8192, verifier_n_ctx=4096, tokenizer_path=None):
+                 n_ctx=8192, verifier_n_ctx=4096, tokenizer_path=None, skip_below_low=True):
         # tiers: {"high": s_hi, "medium": s_med, "low": s_low} on the verifier score s = -logP(abstain).
         # An answer is shown with a confidence label when s >= low, abstained when s < low.
+        # skip_below_low: the score comes from the prompt alone, so below `low` the answer is abstained whatever
+        # the generator writes; skip generating it. Decisions are identical either way. False only for checks
+        # that compare every raw output (readerchecks/).
         # backend "hf": the torch model (cutpoints from configs/reader_4b.json, dtype as calibrated, fp32).
         # backend "gguf": quantised GGUFs, re-calibrated on Q4).
         device = pick_device(device)
@@ -157,6 +191,7 @@ class Reader:
                                     n_gpu_layers=n_gpu_layers)
             self.model = None
         elif device == "cuda":                                           # exactly as calibrated (incl. TF32)
+            from qasper.evaluate import load_model
             self.tok, self.model = load_model(sft_path, adapter_path, dtype)
             self.gguf = None
         else:
@@ -165,6 +200,7 @@ class Reader:
         self.device = device
         self.embedder = SentenceTransformer(EMBEDDER, device=device)
         self.tiers, self.k = tiers, k
+        self.skip_below_low = skip_below_low
         self.paper = self.retriever = None
         self.display = {}
 
@@ -186,6 +222,7 @@ class Reader:
         """log P(<answer>ABSTAIN</answer> | prompt) from the frozen SFT (adapter off), as the verifier was calibrated."""
         if self.gguf is not None:
             return self.gguf.abstain_score(prompt)
+        from qasper.evaluate import abstain_logps
         n = len(self.tok(prompt)["input_ids"])
         with self.model.disable_adapter():
             return abstain_logps(self.model, self.tok, [SimpleNamespace(prompt=prompt, n_tokens=n)], batch_size=1)[0]
@@ -194,6 +231,7 @@ class Reader:
         """The GRPO generator (adapter on), greedy."""
         if self.gguf is not None:
             return self.gguf.generate(prompt)
+        from qasper.evaluate import generate
         return generate(self.model, self.tok, [prompt], MAX_NEW_TOKENS)[0]
 
     def _restore(self, text):
@@ -214,16 +252,20 @@ class Reader:
         context, p_to_idx = build_context(paper, ranked, self.k)
         prompt = format_prompt(self.tok, context, question)
         lp = self.abstain_score(prompt)
-        raw = self.generate(prompt)
         score = -lp                                                      # confidence tiers on this score
+        confidence = self.confidence(score)
         debug = {"reason": None, "abstain_score": lp, "verifier_score": score, "tiers": self.tiers, "outcome": None,
-                 "confidence": None, "raw_output": raw, "context": context, "p_to_idx": p_to_idx,
+                 "confidence": None, "raw_output": None, "repaired": None, "context": context, "p_to_idx": p_to_idx,
                  "n_prompt_tokens": len(self.tok(prompt)["input_ids"])}
 
         def abstain(reason, outcome):
             debug["reason"], debug["outcome"] = reason, outcome
             return {"status": "abstain", "answer": ABSTAIN, "quotes": [], "references": [], "debug": debug}
 
+        if confidence is None and self.skip_below_low:                  # abstained whatever it would write
+            return abstain("verifier", "not generated")
+        raw = self.generate(prompt)
+        debug["raw_output"] = raw
         parsed = parse(raw)
         if parsed is None:
             return abstain("format", "format")
@@ -231,12 +273,14 @@ class Reader:
         if answer == ABSTAIN:
             return abstain("generator abstained", "abstain")
         if not format_ok(quotes, answer, False, p_to_idx):
-            return abstain("format", "format")
+            quotes, edits = repair_quotes(quotes, answer)
+            if not edits or not format_ok(quotes, answer, False, p_to_idx):
+                return abstain("format", "format")
+            debug["repaired"] = edits
         check = quote_check(quotes, paper, p_to_idx)
         if check != "ok":
             return abstain(check, check)                                 # "fabricated" or "miscited"
         debug["outcome"] = "answer"                                      # passes the rules: the tier decides
-        confidence = self.confidence(score)
         debug["confidence"] = confidence
         if confidence is None:                                           # below the abstain cutpoint
             debug["reason"] = "verifier"
