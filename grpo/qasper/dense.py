@@ -1,5 +1,4 @@
-import torch
-from sentence_transformers import SentenceTransformer
+import numpy as np
 
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
@@ -8,6 +7,7 @@ class DenseRetriever:
     """Embedding search over each paper's paragraphs."""
 
     def __init__(self, papers, model_name="BAAI/bge-small-en-v1.5", device="cuda"):
+        from sentence_transformers import SentenceTransformer       # here, not at the top: the ONNX path has no torch
         self.model = SentenceTransformer(model_name, device=device)
         self.emb = {
             pid: self.model.encode(p.paragraphs, batch_size=64,
@@ -20,6 +20,9 @@ class DenseRetriever:
                               normalize_embeddings=True, convert_to_tensor=True)
         scores = (self.emb[paper_id] @ q.T).squeeze(1)
         k = min(k, scores.shape[0])
+        if isinstance(scores, np.ndarray):                           # qasper.onnx_embed.OnnxEmbedder: numpy, no torch
+            return np.argsort(-scores, kind="stable")[:k].tolist()
+        import torch
         return torch.topk(scores, k).indices.tolist()
 
 

@@ -1,6 +1,7 @@
 {
   "sft_path": "runs/sft_v2_4b/merged",
   "tokenizer_path": "runs/tokenizer_4b",
+  "embedder_path": "runs/embedder_onnx",
   "adapter_path": "runs/grpo_v2_4b/step80",
   "tiers": {
     "high": 2.939,

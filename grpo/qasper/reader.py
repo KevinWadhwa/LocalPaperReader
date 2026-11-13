@@ -5,10 +5,9 @@ The two model calls are `abstain_score` and `generate`; a GGUF backend replaces 
 import re
 from types import SimpleNamespace
 
-# torch / peft / qasper.evaluate are imported lazily (inside the HF-path functions only), so the
-# GGUF laptop build never imports torch and the PyInstaller bundle can exclude it. transformers
-# (tokenizer) and sentence_transformers (retrieval embedder) are needed by both backends.
-from sentence_transformers import SentenceTransformer
+# torch / peft / qasper.evaluate / sentence_transformers are imported lazily (inside the HF-path code only), so the
+# GGUF laptop build with the ONNX embedder (embedder_path) never needs torch and the PyInstaller bundle can exclude
+# it. transformers (tokenizers) is needed by both backends.
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from qasper.bm25 import PaperIndex, tokenize
@@ -196,7 +195,7 @@ def load_off_cuda(sft_path, adapter_path, device, dtype):
 class Reader:
     def __init__(self, sft_path, adapter_path, tiers, k=16, device="auto", dtype="fp32",
                  backend="hf", verifier_gguf=None, generator_gguf=None, n_gpu_layers=-1,
-                 n_ctx=8192, verifier_n_ctx=4096, tokenizer_path=None, skip_below_low=True):
+                 n_ctx=8192, verifier_n_ctx=4096, tokenizer_path=None, skip_below_low=True, embedder_path=None):
         # tiers: {"high": s_hi, "medium": s_med, "low": s_low} on the verifier score s = -logP(abstain).
         # An answer is shown with a confidence label when s >= low, abstained when s < low.
         # skip_below_low: the score comes from the prompt alone, so below `low` the answer is abstained whatever
@@ -222,7 +221,12 @@ class Reader:
             self.tok, self.model = load_off_cuda(sft_path, adapter_path, device, dtype)
             self.gguf = None
         self.device = device
-        self.embedder = SentenceTransformer(EMBEDDER, device=device)
+        if backend == "gguf" and embedder_path:                         # bge-small through onnxruntime, no torch
+            from qasper.onnx_embed import OnnxEmbedder
+            self.embedder = OnnxEmbedder(embedder_path)
+        else:
+            from sentence_transformers import SentenceTransformer
+            self.embedder = SentenceTransformer(EMBEDDER, device=device)
         self.tiers, self.k = tiers, k
         self.skip_below_low = skip_below_low
         self.paper = self.retriever = None
