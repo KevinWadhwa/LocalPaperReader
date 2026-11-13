@@ -1,7 +1,8 @@
 """LocalPaperReader: upload a PDF, ask questions about it. Each question is answered on its own (the chat history
 is shown, not sent to the model). Models load once, at startup.
 
-    PYTHONPATH=. python app.py --config configs/reader_1.7b.json
+    PYTHONPATH=. python app.py                                   # configs/reader_4b_gguf.json, opens the browser
+    PYTHONPATH=. python app.py --config configs/reader_4b.json --no-browser    # fp32 on an HPC GPU node
 """
 import argparse
 import html
@@ -20,8 +21,9 @@ CAPTION = "Figures and tables"
 
 def parse_args():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", default="configs/reader_1.7b.json")
+    ap.add_argument("--config", default="configs/reader_4b_gguf.json")
     ap.add_argument("--port", type=int, default=7860)
+    ap.add_argument("--no-browser", action="store_true", help="don't open a browser tab (headless / HPC)")
     return ap.parse_args()
 
 
@@ -57,8 +59,9 @@ def render(result):
 def main():
     args = parse_args()
     cfg = json.load(open(args.config))
-    reader = Reader(cfg["sft_path"], cfg["adapter_path"], cfg["tiers"], cfg["k"],
-                    cfg.get("device", "auto"), cfg["dtype"],
+    # a gguf config keeps sft_path / adapter_path under "provenance" (not loaded), so .get here
+    reader = Reader(cfg.get("sft_path"), cfg.get("adapter_path"), cfg["tiers"], cfg["k"],
+                    cfg.get("device", "auto"), cfg.get("dtype", "fp32"),
                     backend=cfg.get("backend", "hf"),
                     verifier_gguf=cfg.get("verifier_gguf"), generator_gguf=cfg.get("generator_gguf"),
                     n_gpu_layers=cfg.get("n_gpu_layers", -1),
@@ -66,7 +69,10 @@ def main():
                     verifier_n_ctx=cfg.get("verifier_n_ctx", 4096),
                     tokenizer_path=cfg.get("tokenizer_path"),
                     embedder_path=cfg.get("embedder_path"))
-    print(f"backend {reader.backend} on {reader.device}")
+    if reader.backend == "gguf":
+        print(f"backend gguf, n_gpu_layers {cfg.get('n_gpu_layers', -1)}, embedder on {reader.device}")
+    else:
+        print(f"backend {reader.backend} on {reader.device}")
     placeholder_note = (" · confidence cutpoints are placeholders: every rule-passing answer is shown as low"
                         if cfg.get("tiers_placeholder") else "")
 
@@ -119,7 +125,8 @@ def main():
         question.submit(ask, [question, chat, state], [chat, question, debug])
         show_debug.change(lambda on: gr.update(visible=on), show_debug, debug)
 
-    demo.queue().launch(server_name="127.0.0.1", server_port=args.port, show_error=True)
+    demo.queue().launch(server_name="127.0.0.1", server_port=args.port, show_error=True,
+                        inbrowser=not args.no_browser)
 
 
 if __name__ == "__main__":
