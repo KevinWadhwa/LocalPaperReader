@@ -119,25 +119,31 @@ def _front_matter(page, margin):
     full = _column_lines(page, 0, page.width, margin)
     if not full:
         return "", "", margin
-    title = _norm(max(full, key=lambda l: l["size"])["text"]).strip()
+    # Title = every line sharing the largest font size, since a long title wraps.
+    top_size = max(l["size"] for l in full)
+    title = _norm(" ".join(l["text"] for l in full if abs(l["size"] - top_size) < 0.3)).strip()
 
     head = next((l for l in full if re.match(r"^abstract\b", l["text"], re.I)), None)
     if head is None:                                    # no Abstract heading: nothing to consume
         return title, "", margin
-    # The abstract is in ONE column while the introduction already runs in the other, so reading
-    # full-width splices them ("...We explore linguistic features S the opposite. Can we..."):
-    # take it from the abstract heading's own column.
+    # The abstract sits in ONE column while the introduction already runs in the other, so
+    # reading full-width splices the two together: take it from the heading's own column.
     g = _gutter(page)
     x0, x1 = (0, page.width) if g is None else ((0, g) if head["x0"] < g else (g, page.width))
     col = [l for l in _column_lines(page, x0, x1, margin) if l["top"] > head["top"]]
-    body_size = Counter(round(l["size"] * 2) / 2 for l in col).most_common(1)[0][0] if col else 10
+    if not col:
+        return title, "", margin
+    # The abstract is a single typographic block, so it runs while the size matches its own first
+    # line and ends at the first line of a different size -- which is the next section heading.
+    # Keyed on size rather than a heading word list (which would miss anything unnumbered or
+    # non-English) or on boldness (some papers set the whole abstract bold).
+    size = col[0]["size"]
     parts = []
     for l in col:
-        # stop at the next heading: larger than body, or a short bold line
-        if l["size"] > body_size + 0.5 or (l["bold"] and len(l["text"].split()) <= 8):
+        if abs(l["size"] - size) > 0.4:
             return title, _clean(_norm(" ".join(parts))), l["top"]
         parts.append(l["text"])
-    return title, _clean(_norm(" ".join(parts))), col[-1]["top"] if col else margin
+    return title, _clean(_norm(" ".join(parts))), col[-1]["top"]
 
 
 def _drop_running_heads(pages_lines):
