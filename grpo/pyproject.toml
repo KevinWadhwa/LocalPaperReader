@@ -5,18 +5,37 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "localpaperreader-grpo"
 version = "0.1.0"
-description = "QASPER retrieval, SFT and GRPO training for grounded paper QA"
+description = "Grounded question answering over a PDF paper (QASPER-trained), plus its SFT/GRPO training code"
 requires-python = ">=3.10"
-# torch is left unpinned so Colab (or any machine) keeps its own CUDA build;
-# the rest match the localpaperreader env on hive/tide
+# The app (app.py: GGUF backend + ONNX embedder). No torch.
+# Versions match the localpaperreader env on hive/tide.
+# llama-cpp-python compiles on install; choose its backend with CMAKE_ARGS:
+#   Mac (Metal):       CMAKE_ARGS="-DGGML_METAL=ON"
+#   portable x86 CPU:  CMAKE_ARGS="-DGGML_NATIVE=OFF -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON"
 dependencies = [
-    "transformers==5.19.0",
+    "gradio==6.31.0",
+    "llama-cpp-python==0.3.36",
+    "onnxruntime==1.31.1",
+    "transformers==5.19.0",        # tokenizer only on the GGUF path
+    "numpy==2.5.4",
+    "rank-bm25==0.2.2",
+    "pdfplumber==0.11.10",
+]
+
+[project.optional-dependencies]
+# torch is not listed anywhere, so each machine (Colab, CUDA, MPS) keeps its own build
+hf = [                             # torch reader backend, configs/reader_4b.json
+    "peft==0.21.2",
+    "sentence-transformers==6.1.0",
+]
+train = [                          # training, evaluation and the parsescripts/ gates
     "peft==0.21.2",
     "trl==1.16.0",
     "datasets==5.1.0",
     "sentence-transformers==6.1.0",
-    "rank-bm25==0.2.2",
     "huggingface_hub==1.33.0",
+    "scipy==1.18.1",
+    "scikit-learn==1.9.1",
 ]
 
 [tool.setuptools]
