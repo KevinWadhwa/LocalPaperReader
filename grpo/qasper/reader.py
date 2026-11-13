@@ -89,6 +89,93 @@ def teacher_forced_logp(llm, p_ids, comp_ids):
     return float(total)
 
 
+def _lookup(seq, max_draft=8, ngrams=(3, 2)):
+    """Copy-ahead guess: the tokens that followed the latest earlier occurrence of seq's last n tokens (n = 3, then
+    2), up to max_draft; [] if neither occurs earlier. No guess on a single-token match: on a CPU every guessed
+    token costs real compute, so only likely copies are tried."""
+    import numpy as np
+    a, L = np.asarray(seq), len(seq)
+    for n in ngrams:
+        if L <= n:
+            continue
+        m = np.ones(L - n, dtype=bool)                      # m[i]: a[i:i+n] equals the last n tokens (i < L - n)
+        for k in range(n):
+            m &= a[k:L - n + k] == a[L - n + k]
+        hits = np.flatnonzero(m)
+        if len(hits):
+            i = int(hits[-1])
+            return list(seq[i + n:i + n + max_draft])
+    return []
+
+
+def copy_ahead_generate(llm, p_ids, max_tokens, stop=("<|im_end|>",), max_draft=8):
+    """Greedy generation giving the text of llm.create_completion(p_ids, max_tokens=..., temperature=0.0, stop=...),
+    with fewer model steps. Most of an answer is copied from the paper (the quotes, often the answer), so before each
+    step the tokens that followed the latest 3- or 2-token match in the prompt or output are guessed, and one decode
+    checks them all. A guessed token is kept only while it equals the model's own argmax, so every kept token is the
+    model's greedy choice; a wrong guess costs part of one step. Checking several tokens in one batch uses slightly
+    different arithmetic than one at a time, so a near-tie can rarely flip: gate it against create_completion.
+    Text is assembled exactly as create_completion does (end-of-generation token, stop strings, max_tokens,
+    incomplete multi-byte characters). Uses llama-cpp-python 0.3.36's private _ctx/_batch: re-check after upgrades.
+    Leaves llm.n_tokens at 0, so the next call on this Llama recomputes from scratch."""
+    import llama_cpp
+    import numpy as np
+    if len(p_ids) >= llm.n_ctx():
+        raise ValueError(f"Requested tokens ({len(p_ids)}) exceed context window of {llm.n_ctx()}")
+    max_tokens = max_tokens if max_tokens + len(p_ids) < llm.n_ctx() else llm.n_ctx() - len(p_ids)
+    n_vocab, vocab, stops = llm.n_vocab(), llm._model.vocab, [s.encode("utf-8") for s in stop]
+
+    def argmax(j):
+        ptr = llm._ctx.get_logits_ith(j)
+        if not ptr:
+            raise RuntimeError(f"llama.cpp returned no logits for batch row {j}")
+        return int(np.argmax(np.ctypeslib.as_array(ptr, shape=(n_vocab,))))
+
+    llm.reset()
+    llm._ctx.kv_cache_seq_rm(-1, 0, -1)
+    for start in range(0, len(p_ids), llm.n_batch):          # read the prompt in the chunks Llama.eval uses
+        chunk = p_ids[start:start + llm.n_batch]
+        llm._batch.set_batch(batch=chunk, n_past=start, logits_all=False)   # flags each chunk's last token
+        llm._ctx.decode(llm._batch)
+    nxt, n_past, seq = argmax(len(chunk) - 1), len(p_ids), list(p_ids)
+    out, multibyte_fix = [], 0
+    while True:
+        draft = _lookup(seq + [nxt], max_draft)[:max(0, max_tokens - len(out) - 1)]
+        batch = [nxt] + draft
+        llm._batch.set_batch(batch=batch, n_past=n_past, logits_all=True)
+        llm._ctx.decode(llm._batch)                          # one step checks the whole guess
+        accepted = [nxt]
+        for i, d in enumerate(draft):
+            pred = argmax(i)
+            if pred != d:
+                nxt = pred
+                break
+            accepted.append(d)
+        else:
+            nxt = argmax(len(draft))
+        llm._ctx.kv_cache_seq_rm(-1, n_past + len(accepted), -1)   # forget the rejected guesses
+        n_past += len(accepted)
+        seq += accepted
+        for t in accepted:                                   # create_completion's per-token rules, in order
+            if llama_cpp.llama_vocab_is_eog(vocab, t):
+                return llm.detokenize(out, prev_tokens=p_ids).decode("utf-8", errors="ignore")
+            out.append(t)
+            text = llm.detokenize(out, prev_tokens=p_ids)
+            for k, char in enumerate(text[-3:]):
+                k = 3 - k
+                for num, pattern in ((2, 192), (3, 224), (4, 240)):
+                    if num > k and pattern & char == pattern:
+                        multibyte_fix = num - k
+            if multibyte_fix > 0:
+                multibyte_fix -= 1
+                continue
+            hit = [s for s in stops if s in text]
+            if hit:
+                return text[:text.index(hit[0])].decode("utf-8", errors="ignore")
+            if len(out) >= max_tokens:
+                return text.decode("utf-8", errors="ignore")
+
+
 class GGUFBackend:
     """The two model calls (abstain_score, generate) through llama-cpp-python, for the laptop build.
 
@@ -104,12 +191,13 @@ class GGUFBackend:
     Mac, AVX2/CUDA on Windows/Linux). This class, and everything downstream of it, is identical.
     """
     def __init__(self, verifier_gguf, generator_gguf, tok, n_ctx=8192, verifier_n_ctx=4096,
-                 n_gpu_layers=-1, n_threads=8):
+                 n_gpu_layers=-1, n_threads=8, copy_ahead=False):
         #different ctx for generator and verifier, verifier has fit method to enable truncations, otherwise too memory intensive for 0.5% of cases.
         from llama_cpp import Llama
         self.tok = tok
         self.comp_ids = tok(ABSTAIN_COMPLETION, add_special_tokens=False)["input_ids"]
         self.n_ctx, self.verifier_n_ctx = n_ctx, verifier_n_ctx
+        self.copy_ahead = copy_ahead                        # generate with copy_ahead_generate (off until gated)
         common = dict(n_gpu_layers=n_gpu_layers, n_threads=n_threads, verbose=False)
         self.verifier = Llama(model_path=verifier_gguf, logits_all=False,
                               n_ctx=verifier_n_ctx, **common)   # teacher-forced logprobs via teacher_forced_logp
@@ -150,6 +238,8 @@ class GGUFBackend:
         """Greedy generation through the generator GGUF (temperature 0 == evaluate.generate's do_sample=False),
         stopping at <|im_end|>. Prompt tokenised with special=True so the chat-template tokens are real."""
         p_ids = self.generator.tokenize(prompt.encode(), add_bos=True, special=True)
+        if self.copy_ahead:                                 # same text, fewer model steps
+            return copy_ahead_generate(self.generator, p_ids, MAX_NEW_TOKENS)
         out = self.generator.create_completion(p_ids, max_tokens=MAX_NEW_TOKENS, temperature=0.0,
                                                stop=["<|im_end|>"])
         return out["choices"][0]["text"]
@@ -195,7 +285,8 @@ def load_off_cuda(sft_path, adapter_path, device, dtype):
 class Reader:
     def __init__(self, sft_path, adapter_path, tiers, k=16, device="auto", dtype="fp32",
                  backend="hf", verifier_gguf=None, generator_gguf=None, n_gpu_layers=-1,
-                 n_ctx=8192, verifier_n_ctx=4096, tokenizer_path=None, skip_below_low=True, embedder_path=None):
+                 n_ctx=8192, verifier_n_ctx=4096, tokenizer_path=None, skip_below_low=True, embedder_path=None,
+                 copy_ahead=False):
         # tiers: {"high": s_hi, "medium": s_med, "low": s_low} on the verifier score s = -logP(abstain).
         # An answer is shown with a confidence label when s >= low, abstained when s < low.
         # skip_below_low: the score comes from the prompt alone, so below `low` the answer is abstained whatever
@@ -214,7 +305,7 @@ class Reader:
             self.tok.padding_side = "left"
             self.gguf = GGUFBackend(verifier_gguf, generator_gguf, self.tok,
                                     n_ctx=n_ctx, verifier_n_ctx=verifier_n_ctx,
-                                    n_gpu_layers=n_gpu_layers)
+                                    n_gpu_layers=n_gpu_layers, copy_ahead=copy_ahead)
             self.model = None
         elif device == "cuda":                                           # exactly as calibrated (incl. TF32)
             from qasper.evaluate import load_model
