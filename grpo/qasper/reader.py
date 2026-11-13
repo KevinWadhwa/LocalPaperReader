@@ -203,7 +203,10 @@ class Reader:
         # that compare every raw output (readerchecks/).
         # backend "hf": the torch model (cutpoints from configs/reader_4b.json, dtype as calibrated, fp32).
         # backend "gguf": quantised GGUFs, re-calibrated on Q4).
-        device = pick_device(device)
+        if backend == "gguf" and embedder_path:
+            device = "cpu"      # the ONNX embedder is CPU-only; GGUF GPU offload is n_gpu_layers. No torch probe.
+        else:
+            device = pick_device(device)
         self.backend = backend
         if backend == "gguf":
             # the tokenizer is still the HF, the two model calls go through GGUFBackend. The embedder (retrieval) runs on CPU.
