@@ -234,6 +234,7 @@ class Reader:
         self.skip_below_low = skip_below_low
         self.paper = self.retriever = None
         self.display = {}
+        self._answers = {}                                               # question -> result, for the indexed paper
 
     def confidence(self, score):
         """HIGH / MEDIUM / LOW for a shown answer, or None if the score is below the abstain cutpoint."""
@@ -248,6 +249,7 @@ class Reader:
     def index(self, paper, display_map=None):
         self.paper, self.display = paper, display_map or {}
         self.retriever = _Hybrid({paper.paper_id: paper}, self.embedder)
+        self._answers = {}                                               # cleared per paper: an uploaded PDF's id is its filename
 
     def abstain_score(self, prompt):
         """log P(<answer>ABSTAIN</answer> | prompt) from the frozen SFT (adapter off), as the verifier was calibrated."""
@@ -278,6 +280,15 @@ class Reader:
                 "before": r(before), "after": r(after)}
 
     def ask(self, question):
+        """_ask, with an exact repeat on the same paper answered from memory: the same prompt gives the same
+        greedy result, so recomputing it would only cost time."""
+        if question not in self._answers:
+            self._answers[question] = self._ask(question)
+            return self._answers[question]
+        hit = self._answers[question]
+        return {**hit, "debug": {**hit["debug"], "cached": True}}
+
+    def _ask(self, question):
         paper = self.paper
         ranked = self.retriever.top_k(paper.paper_id, question, self.k)
         context, p_to_idx = build_context(paper, ranked, self.k)
