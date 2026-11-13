@@ -15,7 +15,7 @@ from qasper.bm25 import PaperIndex, tokenize
 from qasper.context import build_context
 from qasper.dense import DenseRetriever
 from qasper.hybrid import HybridRetriever
-from qasper.pdf_parse import restore
+from qasper.pdf_parse_v3 import restore
 from qasper.prompt import format_prompt
 from qasper.reward import ABSTAIN, MAX_QUOTES, MAX_WORDS, MIN_WORDS, format_ok, norm_ws, parse, quote_check
 

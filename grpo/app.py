@@ -11,7 +11,7 @@ import os
 
 import gradio as gr
 
-from qasper.pdf_parse import parse_pdf
+from qasper.pdf_parse_v3 import parse_pdf
 from qasper.reader import Reader
 from qasper.reward import ABSTAIN
 
@@ -72,10 +72,10 @@ def main():
     def upload(path, progress=gr.Progress()):
         if not path:
             return None, "No file.", []
-        progress(0.1, desc="Parsing the PDF with GROBID")
+        progress(0.1, desc="Parsing the PDF")
         try:
-            paper, display = parse_pdf(path, os.path.basename(path).removesuffix(".pdf"), cfg["grobid_url"])
-        except Exception as e:                                           # GROBID down, bad PDF, timeout
+            paper, display = parse_pdf(path, os.path.basename(path).removesuffix(".pdf"))
+        except Exception as e:                                           #bad PDF or scanned
             return None, f"Couldn't parse the PDF: {e}", []
         progress(0.7, desc="Indexing")
         reader.index(paper, display)
