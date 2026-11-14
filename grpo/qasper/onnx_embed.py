@@ -6,6 +6,9 @@ model.onnx is exported from the cached HF weights (runs/embedder_onnx, with the 
 import numpy as np
 
 
+MAX_BATCH = 16      # 64 peaked at +2.6 GB while indexing on the Mac
+
+
 class OnnxEmbedder:
     """bge-small through onnxruntime: SentenceTransformer.encode for this model (truncate at 512 tokens, CLS
     vector, L2-normalise) with no torch. Returns float32 numpy."""
@@ -13,12 +16,14 @@ class OnnxEmbedder:
         import onnxruntime as ort
         from transformers import AutoTokenizer
         opts = ort.SessionOptions()
+        opts.enable_cpu_mem_arena = False                   # release memory after each batch
         if threads:
             opts.intra_op_num_threads = threads
         self.sess = ort.InferenceSession(f"{path}/model.onnx", opts, providers=["CPUExecutionProvider"])
         self.tok = AutoTokenizer.from_pretrained(path)
 
-    def encode(self, texts, batch_size=64, **_):          # extra SentenceTransformer kwargs are accepted and ignored
+    def encode(self, texts, batch_size=MAX_BATCH, **_):   # extra SentenceTransformer kwargs are accepted and ignored
+        batch_size = min(batch_size, MAX_BATCH)             # callers pass 64
         order = sorted(range(len(texts)), key=lambda i: -len(texts[i]))
         out = np.zeros((len(texts), 384), dtype=np.float32)
         for s in range(0, len(order), batch_size):
