@@ -108,7 +108,7 @@ def _lookup(seq, max_draft=8, ngrams=(3, 2)):
     return []
 
 
-def copy_ahead_generate(llm, p_ids, max_tokens, stop=("<|im_end|>",), max_draft=8):
+def copy_ahead_generate(llm, p_ids, max_tokens, stop=("<|im_end|>",), max_draft=8, keep=0):
     """Greedy generation giving the text of llm.create_completion(p_ids, max_tokens=..., temperature=0.0, stop=...),
     with fewer model steps. Most of an answer is copied from the paper (the quotes, often the answer), so before each
     step the tokens that followed the latest 3- or 2-token match in the prompt or output are guessed, and one decode
@@ -117,6 +117,7 @@ def copy_ahead_generate(llm, p_ids, max_tokens, stop=("<|im_end|>",), max_draft=
     different arithmetic than one at a time, so a near-tie can rarely flip: gate it against create_completion.
     Text is assembled exactly as create_completion does (end-of-generation token, stop strings, max_tokens,
     incomplete multi-byte characters). Uses llama-cpp-python 0.3.36's private _ctx/_batch: re-check after upgrades.
+    `keep`: the first `keep` prompt tokens are already in the cache and are not re-read (0 = read the whole prompt).
     Leaves llm.n_tokens at 0, so the next call on this Llama recomputes from scratch."""
     import llama_cpp
     import numpy as np
@@ -132,8 +133,8 @@ def copy_ahead_generate(llm, p_ids, max_tokens, stop=("<|im_end|>",), max_draft=
         return int(np.argmax(np.ctypeslib.as_array(ptr, shape=(n_vocab,))))
 
     llm.reset()
-    llm._ctx.kv_cache_seq_rm(-1, 0, -1)
-    for start in range(0, len(p_ids), llm.n_batch):          # read the prompt in the chunks Llama.eval uses
+    llm._ctx.kv_cache_seq_rm(-1, keep, -1)                   # keep=0: empty the cache
+    for start in range(keep, len(p_ids), llm.n_batch):       # read the uncached prompt tokens, in n_batch chunks
         chunk = p_ids[start:start + llm.n_batch]
         llm._batch.set_batch(batch=chunk, n_past=start, logits_all=False)   # flags each chunk's last token
         llm._ctx.decode(llm._batch)
