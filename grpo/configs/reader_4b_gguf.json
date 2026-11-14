@@ -1,7 +1,7 @@
 {
   "backend": "gguf",
   "verifier_gguf": "runs/gguf/verifier-q4km.gguf",
-  "generator_gguf": "runs/gguf/generator-q4km.gguf",
+  "generator_lora": "runs/gguf/grpo-step80-lora-f32.gguf",
   "tokenizer_path": "runs/tokenizer_4b",
   "embedder_path": "runs/embedder_onnx",
   "tiers": {

@@ -69,7 +69,8 @@ def main():
                     verifier_n_ctx=cfg.get("verifier_n_ctx", 4096),
                     tokenizer_path=cfg.get("tokenizer_path"),
                     embedder_path=cfg.get("embedder_path"),
-                    copy_ahead=cfg.get("copy_ahead", False))
+                    copy_ahead=cfg.get("copy_ahead", False),
+                    generator_lora=cfg.get("generator_lora"))
     if reader.backend == "gguf":
         print(f"backend gguf, n_gpu_layers {cfg.get('n_gpu_layers', -1)}, embedder on {reader.device}")
     else:

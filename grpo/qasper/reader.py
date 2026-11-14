@@ -179,9 +179,15 @@ def copy_ahead_generate(llm, p_ids, max_tokens, stop=("<|im_end|>",), max_draft=
 class GGUFBackend:
     """The two model calls (abstain_score, generate) through llama-cpp-python, for the laptop build.
 
-    GGUF can't toggle a LoRA on/off, so the two roles are two files: `verifier_gguf` is the frozen SFT
-    (adapter off) that produces the abstain score, `generator_gguf` is the SFT+GRPO merge (adapter on)
-    that writes answers. Scoring and generation reproduce evaluate.py/gguf_verifier_gate exactly:
+    The two roles are the frozen SFT (adapter off), which produces the abstain score, and SFT+GRPO (adapter on),
+    which writes answers. Two ways to load them:
+      - two files: `verifier_gguf` (the SFT) and `generator_gguf` (the SFT+GRPO merge), each its own Llama;
+      - one file + adapter (`generator_lora`): `verifier_gguf` loaded once, GRPO's LoRA adapter switched on to
+        generate and off to score, in one shared context. About 2.5 GB less disk and one model's weights less in
+        RAM. Gated on the Mac (2026-11-13): verifier scores identical, strict F1 +0.006 [-0.004, +0.016].
+        The context is reset before every generation, else create_completion reuses the verifier's adapter-off
+        cache for the shared prompt and silently writes a different answer.
+    Scoring and generation reproduce evaluate.py/gguf_verifier_gate exactly:
     tokenise the prompt with add_bos=True, special=True (create_completion's default special=False would
     mangle the chat-template tokens), teacher-force the abstain completion and sum log_softmax over its
     tokens (teacher_forced_logp: only the completion rows get logits, so no n_ctx x vocab buffer),
@@ -191,7 +197,7 @@ class GGUFBackend:
     Mac, AVX2/CUDA on Windows/Linux). This class, and everything downstream of it, is identical.
     """
     def __init__(self, verifier_gguf, generator_gguf, tok, n_ctx=8192, verifier_n_ctx=4096,
-                 n_gpu_layers=-1, n_threads=8, copy_ahead=False):
+                 n_gpu_layers=-1, n_threads=8, copy_ahead=False, generator_lora=None):
         #different ctx for generator and verifier, verifier has fit method to enable truncations, otherwise too memory intensive for 0.5% of cases.
         from llama_cpp import Llama
         self.tok = tok
@@ -199,9 +205,21 @@ class GGUFBackend:
         self.n_ctx, self.verifier_n_ctx = n_ctx, verifier_n_ctx
         self.copy_ahead = copy_ahead                        # generate with copy_ahead_generate (off until gated)
         common = dict(n_gpu_layers=n_gpu_layers, n_threads=n_threads, verbose=False)
-        self.verifier = Llama(model_path=verifier_gguf, logits_all=False,
-                              n_ctx=verifier_n_ctx, **common)   # teacher-forced logprobs via teacher_forced_logp
-        self.generator = Llama(model_path=generator_gguf, logits_all=False, n_ctx=n_ctx, **common)
+        if generator_lora:                                  # one file: the SFT, plus GRPO's adapter to generate
+            import ctypes
+            import llama_cpp
+            llm = Llama(model_path=verifier_gguf, logits_all=False, n_ctx=max(n_ctx, verifier_n_ctx), **common)
+            ad = llama_cpp.llama_adapter_lora_init(llm._model.model, generator_lora.encode())   # not lora_path=:
+            if not ad:                                                                       # that disables mmap
+                raise RuntimeError(f"couldn't load the LoRA adapter {generator_lora}")
+            llm._stack.callback(llama_cpp.llama_adapter_lora_free, ad)   # freed before the model, as lora_path= does
+            self._lora = ((llama_cpp.llama_adapter_lora_p_ctypes * 1)(ad), (ctypes.c_float * 1)(1.0))
+            self.verifier = self.generator = llm
+        else:                                               # two files
+            self._lora = None
+            self.verifier = Llama(model_path=verifier_gguf, logits_all=False,
+                                  n_ctx=verifier_n_ctx, **common)   # teacher-forced logprobs via teacher_forced_logp
+            self.generator = Llama(model_path=generator_gguf, logits_all=False, n_ctx=n_ctx, **common)
         # tokeniser-drift guard: the GGUF must tokenise the abstain completion to the SAME ids as HF
         gg = self.verifier.tokenize(ABSTAIN_COMPLETION.encode(), add_bos=False, special=True)
         assert gg == self.comp_ids, f"verifier GGUF completion ids differ from HF:\n {gg}\n {self.comp_ids}"
@@ -228,18 +246,34 @@ class GGUFBackend:
               f"{len(p_ids) - budget} mid-context tokens", flush=True)
         return head + tail
 
+    def _adapter(self, on):
+        """One-file mode: GRPO's adapter on (generate) or off (score), set explicitly for every call so an error
+        mid-question can't leave the wrong setting for the next one. Two-file mode: nothing to do."""
+        if self._lora is None:
+            return
+        import llama_cpp
+        ads, scales = self._lora
+        rc = llama_cpp.llama_set_adapters_lora(self.verifier._ctx.ctx, ads if on else None, 1 if on else 0,
+                                               scales if on else None)
+        if rc != 0:
+            raise RuntimeError(f"llama_set_adapters_lora returned {rc}")
+
     def abstain_score(self, prompt):
         """logP(<answer>ABSTAIN</answer><|im_end|> | prompt) through the verifier GGUF. Returns the same
         (negative) log-prob the HF path returns, so the reader's s = -lp and the tiers are unchanged."""
+        self._adapter(False)
         p_ids = self.verifier.tokenize(prompt.encode(), add_bos=True, special=True)
         return teacher_forced_logp(self.verifier, self._fit(p_ids), self.comp_ids)
 
     def generate(self, prompt):
         """Greedy generation through the generator GGUF (temperature 0 == evaluate.generate's do_sample=False),
         stopping at <|im_end|>. Prompt tokenised with special=True so the chat-template tokens are real."""
+        self._adapter(True)
         p_ids = self.generator.tokenize(prompt.encode(), add_bos=True, special=True)
-        if self.copy_ahead:                                 # same text, fewer model steps
+        if self.copy_ahead:                                 # same text, fewer model steps (resets the context itself)
             return copy_ahead_generate(self.generator, p_ids, MAX_NEW_TOKENS)
+        if self._lora is not None:                          # the cache holds the verifier's adapter-off pass of
+            self.generator.reset()                          # this prompt: never reuse it for generation
         out = self.generator.create_completion(p_ids, max_tokens=MAX_NEW_TOKENS, temperature=0.0,
                                                stop=["<|im_end|>"])
         return out["choices"][0]["text"]
@@ -286,7 +320,7 @@ class Reader:
     def __init__(self, sft_path, adapter_path, tiers, k=16, device="auto", dtype="fp32",
                  backend="hf", verifier_gguf=None, generator_gguf=None, n_gpu_layers=-1,
                  n_ctx=8192, verifier_n_ctx=4096, tokenizer_path=None, skip_below_low=True, embedder_path=None,
-                 copy_ahead=False):
+                 copy_ahead=False, generator_lora=None):
         # tiers: {"high": s_hi, "medium": s_med, "low": s_low} on the verifier score s = -logP(abstain).
         # An answer is shown with a confidence label when s >= low, abstained when s < low.
         # skip_below_low: the score comes from the prompt alone, so below `low` the answer is abstained whatever
@@ -305,7 +339,8 @@ class Reader:
             self.tok.padding_side = "left"
             self.gguf = GGUFBackend(verifier_gguf, generator_gguf, self.tok,
                                     n_ctx=n_ctx, verifier_n_ctx=verifier_n_ctx,
-                                    n_gpu_layers=n_gpu_layers, copy_ahead=copy_ahead)
+                                    n_gpu_layers=n_gpu_layers, copy_ahead=copy_ahead,
+                                    generator_lora=generator_lora)
             self.model = None
         elif device == "cuda":                                           # exactly as calibrated (incl. TF32)
             from qasper.evaluate import load_model
