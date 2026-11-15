@@ -189,6 +189,9 @@ class GGUFBackend:
         RAM. Gated on the Mac (2026-11-13): verifier scores identical, strict F1 +0.006 [-0.004, +0.016].
         The context is reset before every generation, else create_completion reuses the verifier's adapter-off
         cache for the shared prompt and silently writes a different answer.
+        `shared_cache` (off until gated on the Mac) reuses that cache on purpose, but only up to the question:
+        from the question on, the prompt is re-read with the adapter on, so the paragraphs are read once.
+        fp32 dev gate (2026-11-14): strict F1 +0.005 [-0.005, +0.016], rule failures 60 vs 60.
     Scoring and generation reproduce evaluate.py/gguf_verifier_gate exactly:
     tokenise the prompt with add_bos=True, special=True (create_completion's default special=False would
     mangle the chat-template tokens), teacher-force the abstain completion and sum log_softmax over its
@@ -289,10 +292,14 @@ class GGUFBackend:
         stopping at <|im_end|>. Prompt tokenised with special=True so the chat-template tokens are real."""
         self._adapter(True)
         p_ids = self.generator.tokenize(prompt.encode(), add_bos=True, special=True)
+        # shared_cache: keep the judge's read of this prompt up to the tail (0 = read the whole prompt again)
+        keep = self._tail_start(prompt, p_ids) if self._judged == p_ids else 0
+        self._judged = None                                 # the cache is used once
         if self.copy_ahead:                                 # same text, fewer model steps (resets the context itself)
-            return copy_ahead_generate(self.generator, p_ids, MAX_NEW_TOKENS)
-        if self._lora is not None:                          # the cache holds the verifier's adapter-off pass of
-            self.generator.reset()                          # this prompt: never reuse it for generation
+            return copy_ahead_generate(self.generator, p_ids, MAX_NEW_TOKENS, keep=keep)
+        if self._lora is not None:                          # the cache holds the verifier's adapter-off pass of this
+            self.generator.reset()                          # prompt: create_completion may reuse only its first
+            self.generator.n_tokens = keep                  # `keep` tokens (0 = none)
         out = self.generator.create_completion(p_ids, max_tokens=MAX_NEW_TOKENS, temperature=0.0,
                                                stop=["<|im_end|>"])
         return out["choices"][0]["text"]
