@@ -346,7 +346,7 @@ class Reader:
     def __init__(self, sft_path, adapter_path, tiers, k=16, device="auto", dtype="fp32",
                  backend="hf", verifier_gguf=None, generator_gguf=None, n_gpu_layers=-1,
                  n_ctx=8192, verifier_n_ctx=4096, tokenizer_path=None, skip_below_low=True, embedder_path=None,
-                 copy_ahead=False, generator_lora=None):
+                 copy_ahead=False, generator_lora=None, shared_cache=False):
         # tiers: {"high": s_hi, "medium": s_med, "low": s_low} on the verifier score s = -logP(abstain).
         # An answer is shown with a confidence label when s >= low, abstained when s < low.
         # skip_below_low: the score comes from the prompt alone, so below `low` the answer is abstained whatever
@@ -366,7 +366,7 @@ class Reader:
             self.gguf = GGUFBackend(verifier_gguf, generator_gguf, self.tok,
                                     n_ctx=n_ctx, verifier_n_ctx=verifier_n_ctx,
                                     n_gpu_layers=n_gpu_layers, copy_ahead=copy_ahead,
-                                    generator_lora=generator_lora)
+                                    generator_lora=generator_lora, shared_cache=shared_cache)
             self.model = None
         elif device == "cuda":                                           # exactly as calibrated (incl. TF32)
             from qasper.evaluate import load_model
