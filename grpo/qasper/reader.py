@@ -22,6 +22,7 @@ EMBEDDER = "BAAI/bge-small-en-v1.5"         # DenseRetriever's default
 MAX_NEW_TOKENS = 384
 BIBREF_RE = re.compile(r"\bBIBREF\d+\b")
 ABSTAIN_COMPLETION = f"<answer>{ABSTAIN}</answer><|im_end|>"
+TAIL_MARK = "\n\nQuestion: "                 # start of the prompt's last part (prompt.format_prompt)
 
 
 def repair_quotes(quotes, answer):
@@ -258,6 +259,16 @@ class GGUFBackend:
                                                scales if on else None)
         if rc != 0:
             raise RuntimeError(f"llama_set_adapters_lora returned {rc}")
+
+    def _tail_start(self, prompt, p_ids):
+        """Index of the first prompt token from the last "\\n\\nQuestion: " on (a token spanning the boundary counts).
+        Tokens before it can keep the judge's adapter-off read; from it on they are re-read with the adapter on.
+        Always leaves at least one token to re-read: the first output token needs fresh logits."""
+        head = self.generator.tokenize(prompt[:prompt.rindex(TAIL_MARK)].encode(), add_bos=True, special=True)
+        n = 0
+        while n < min(len(head), len(p_ids) - 1) and head[n] == p_ids[n]:
+            n += 1
+        return n
 
     def abstain_score(self, prompt):
         """logP(<answer>ABSTAIN</answer><|im_end|> | prompt) through the verifier GGUF. Returns the same
