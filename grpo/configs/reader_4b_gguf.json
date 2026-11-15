@@ -14,6 +14,7 @@
   "n_ctx": 8192,
   "verifier_n_ctx": 4096,
   "copy_ahead": true,
+  "shared_cache": true,
   "provenance": {
     "sft_path": "runs/sft_v2_4b/merged",
     "adapter_path": "runs/grpo_v2_4b/step80",
