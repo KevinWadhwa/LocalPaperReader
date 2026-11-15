@@ -93,9 +93,8 @@ def render(result):
     return "\n".join(parts)
 
 
-def main():
-    args = parse_args()
-    cfg = load_config(args.config)
+def build_demo(cfg):
+    """The reader and the interface for a config from load_config. The caller launches it."""
     # a gguf config keeps sft_path / adapter_path under "provenance" (not loaded), so .get here
     reader = Reader(cfg.get("sft_path"), cfg.get("adapter_path"), cfg["tiers"], cfg["k"],
                     cfg.get("device", "auto"), cfg.get("dtype", "fp32"),
@@ -165,8 +164,13 @@ def main():
         question.submit(ask, [question, chat, state], [chat, question, debug])
         show_debug.change(lambda on: gr.update(visible=on), show_debug, debug)
 
-    demo.queue().launch(server_name="127.0.0.1", server_port=args.port, show_error=True,
-                        inbrowser=not args.no_browser)
+    return demo
+
+
+def main():
+    args = parse_args()
+    build_demo(load_config(args.config)).queue().launch(server_name="127.0.0.1", server_port=args.port,
+                                                        show_error=True, inbrowser=not args.no_browser)
 
 
 if __name__ == "__main__":
