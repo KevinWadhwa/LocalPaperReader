@@ -9,6 +9,7 @@ import html
 import inspect
 import json
 import os
+import sys
 
 import gradio as gr
 
@@ -17,6 +18,42 @@ from qasper.reader import Reader
 from qasper.reward import ABSTAIN
 
 CAPTION = "Figures and tables"
+APP_DIR = os.path.dirname(os.path.abspath(__file__))        # the app's own folder, also inside a bundle
+PATH_KEYS = ("verifier_gguf", "generator_gguf", "generator_lora", "tokenizer_path", "embedder_path")
+MODEL_KEYS = ("verifier_gguf", "generator_gguf", "generator_lora")      # too big to ship: fetched on first launch
+
+
+def data_dir():
+    """Per-user folder for the downloaded model files."""
+    if sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Application Support")
+    elif os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~\\AppData\\Local")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return os.path.join(base, "LocalPaperReader")
+
+
+def resolve_paths(cfg):
+    """The config's file paths made absolute: relative to the app's folder, not to where it was started from
+    (a double-clicked app starts elsewhere). A model file not found there is looked for in the per-user data
+    folder, where the first-launch download puts it."""
+    cfg = dict(cfg)
+    for k in PATH_KEYS:
+        if cfg.get(k):
+            p = os.path.join(APP_DIR, cfg[k])               # an absolute path stays as it is
+            if k in MODEL_KEYS and not os.path.exists(p):
+                p = os.path.join(data_dir(), "models", os.path.basename(cfg[k]))
+            cfg[k] = p
+    return cfg
+
+
+def load_config(path):
+    """The config with its file paths resolved. A `path` not found from the current folder is taken relative to
+    the app's folder."""
+    if not os.path.exists(path):
+        path = os.path.join(APP_DIR, path)
+    return resolve_paths(json.load(open(path)))
 
 
 def parse_args():
@@ -58,7 +95,7 @@ def render(result):
 
 def main():
     args = parse_args()
-    cfg = json.load(open(args.config))
+    cfg = load_config(args.config)
     # a gguf config keeps sft_path / adapter_path under "provenance" (not loaded), so .get here
     reader = Reader(cfg.get("sft_path"), cfg.get("adapter_path"), cfg["tiers"], cfg["k"],
                     cfg.get("device", "auto"), cfg.get("dtype", "fp32"),
