@@ -199,13 +199,15 @@ class GGUFBackend:
     Mac, AVX2/CUDA on Windows/Linux). This class, and everything downstream of it, is identical.
     """
     def __init__(self, verifier_gguf, generator_gguf, tok, n_ctx=8192, verifier_n_ctx=4096,
-                 n_gpu_layers=-1, n_threads=8, copy_ahead=False, generator_lora=None):
+                 n_gpu_layers=-1, n_threads=8, copy_ahead=False, generator_lora=None, shared_cache=False):
         #different ctx for generator and verifier, verifier has fit method to enable truncations, otherwise too memory intensive for 0.5% of cases.
         from llama_cpp import Llama
         self.tok = tok
         self.comp_ids = tok(ABSTAIN_COMPLETION, add_special_tokens=False)["input_ids"]
         self.n_ctx, self.verifier_n_ctx = n_ctx, verifier_n_ctx
         self.copy_ahead = copy_ahead                        # generate with copy_ahead_generate (off until gated)
+        self.shared_cache = shared_cache and generator_lora is not None   # needs the one shared context
+        self._judged = None                                 # prompt ids whose adapter-off read is in the cache
         common = dict(n_gpu_layers=n_gpu_layers, n_threads=n_threads, verbose=False)
         if generator_lora:                                  # one file: the SFT, plus GRPO's adapter to generate
             import ctypes
@@ -274,8 +276,13 @@ class GGUFBackend:
         """logP(<answer>ABSTAIN</answer><|im_end|> | prompt) through the verifier GGUF. Returns the same
         (negative) log-prob the HF path returns, so the reader's s = -lp and the tiers are unchanged."""
         self._adapter(False)
+        self._judged = None                                 # the cache is about to be overwritten
         p_ids = self.verifier.tokenize(prompt.encode(), add_bos=True, special=True)
-        return teacher_forced_logp(self.verifier, self._fit(p_ids), self.comp_ids)
+        fitted = self._fit(p_ids)
+        lp = teacher_forced_logp(self.verifier, fitted, self.comp_ids)
+        if self.shared_cache and fitted is p_ids:           # a truncated read can't be reused
+            self._judged = p_ids
+        return lp
 
     def generate(self, prompt):
         """Greedy generation through the generator GGUF (temperature 0 == evaluate.generate's do_sample=False),
