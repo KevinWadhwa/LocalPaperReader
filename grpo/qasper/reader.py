@@ -458,35 +458,23 @@ class Reader:
         i = paragraph.find(quote)
         before, after = paragraph[:i], paragraph[i + len(quote):]
         r = self._restore
-        cites = [ph for ph in dict.fromkeys(BIBREF_RE.findall(quote)) if ph in self.display]
         return {"p": p, "section": section, "quote": r(quote), "paragraph": r(before) + r(quote) + r(after),
-                "before": r(before), "after": r(after), "references": cites}     # placeholders, as in the answer's list
+                "before": r(before), "after": r(after)}
 
     def ask(self, question):
-        """ask_stages run to the end: the result alone."""
-        for _, result in self.ask_stages(question):
-            pass
-        return result
-
-    def ask_stages(self, question):
-        """_ask for a display that follows along: yields ("assess", {"sections", "n_passages"}) as the judge
-        starts reading, ("write", None) as the generator starts, then ("done", result). An exact repeat on the
-        same paper is answered from memory (the same prompt gives the same greedy result): "done" alone."""
-        if question in self._answers:
-            hit = self._answers[question]
-            yield "done", {**hit, "debug": {**hit["debug"], "cached": True}}
-            return
-        result = self._answers[question] = yield from self._ask(question)
-        yield "done", result
+        """_ask, with an exact repeat on the same paper answered from memory: the same prompt gives the same
+        greedy result, so recomputing it would only cost time."""
+        if question not in self._answers:
+            self._answers[question] = self._ask(question)
+            return self._answers[question]
+        hit = self._answers[question]
+        return {**hit, "debug": {**hit["debug"], "cached": True}}
 
     def _ask(self, question):
-        """A generator: yields the stages, returns the result."""
         paper = self.paper
         ranked = self.retriever.top_k(paper.paper_id, question, self.k)
         context, p_to_idx = build_context(paper, ranked, self.k)
         prompt = format_prompt(self.tok, context, question)
-        sections = [paper.sections[i] for i in p_to_idx.values()]       # reading order
-        yield "assess", {"sections": [s for s in dict.fromkeys(sections) if s], "n_passages": len(p_to_idx)}
         lp = self.abstain_score(prompt)
         score = -lp                                                      # confidence tiers on this score
         confidence = self.confidence(score)
@@ -500,7 +488,6 @@ class Reader:
 
         if confidence is None and self.skip_below_low:                  # abstained whatever it would write
             return abstain("verifier", "not generated")
-        yield "write", None
         raw = self.generate(prompt)
         debug["raw_output"] = raw
         parsed = parse(raw)
