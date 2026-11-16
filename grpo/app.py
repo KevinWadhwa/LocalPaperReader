@@ -13,6 +13,7 @@ import sys
 
 import gradio as gr
 
+from qasper import overview
 from qasper.pdf_parse_v3 import parse_pdf
 from qasper.reader import Reader
 from qasper.reward import ABSTAIN
@@ -76,7 +77,24 @@ CONFIDENCE_BADGE = {
 }
 
 
+def render_quotes(quotes, first=1):
+    """Each quote with its section, and its paragraph behind a drop-down."""
+    parts = []
+    for n, q in enumerate(quotes, first):
+        parts += [f"> {html.escape(q['quote'])}", f"> — *{html.escape(q['section'] or 'Unnamed section')}*", "",
+                  f"<details><summary>Show paragraph {n}</summary>{highlight(q)}</details>", ""]
+    return parts
+
+
+def render_references(refs):
+    if not refs:
+        return []
+    return ["**References cited**"] + [f"- {html.escape(r['reference'] or r['cited_as'])}" for r in refs]
+
+
 def render(result):
+    if result["status"] == "overview":
+        return render_overview(result)
     if result["status"] != "answer":
         return html.escape(ABSTAIN)
     parts = []
@@ -84,12 +102,31 @@ def render(result):
     if badge:
         parts += [badge, ""]
     parts += [f"**{html.escape(result['answer'])}**", ""]
-    for n, q in enumerate(result["quotes"], 1):
-        parts += [f"> {html.escape(q['quote'])}", f"> — *{html.escape(q['section'] or 'Unnamed section')}*", "",
-                  f"<details><summary>Show paragraph {n}</summary>{highlight(q)}</details>", ""]
-    if result["references"]:
-        parts.append("**References cited**")
-        parts += [f"- {html.escape(r['reference'] or r['cited_as'])}" for r in result["references"]]
+    parts += render_quotes(result["quotes"])
+    parts += render_references(result["references"])
+    return "\n".join(parts)
+
+
+def render_overview(result):
+    """A general question's aspects: how many were found, each with its own confidence and quotes, the missing
+    ones by name, and where it looked, so a partial overview never reads as a complete summary."""
+    if not result["found"]:
+        return html.escape(ABSTAIN)
+    parts = [f"### {html.escape(result['heading'])}: {result['found']} of {result['total']} aspects found", ""]
+    n, refs = 1, {}
+    for a in result["aspects"]:
+        if a["status"] == "same":
+            parts += [f"**{html.escape(a['label'])}**: same as {html.escape(a['same_as'])} above.", ""]
+        elif a["status"] == "answer":
+            parts += [f"#### {html.escape(a['label'])}", CONFIDENCE_BADGE.get(a["confidence"], ""), "",
+                      f"**{html.escape(a['answer'])}**", ""]
+            parts += render_quotes(a["quotes"], n)
+            n += len(a["quotes"])
+            refs.update({r["placeholder"]: r for r in a["references"]})
+    if result["missing"]:
+        parts += [f"*Not found with enough confidence: {html.escape(', '.join(result['missing']))}.*", ""]
+    parts += [f"<small>From {result['n_passages']} passages in: {html.escape(' · '.join(result['sections']))}</small>", ""]
+    parts += render_references(list(refs.values()))
     return "\n".join(parts)
 
 
@@ -143,7 +180,8 @@ def build_demo(cfg):
         if reader.paper is not paper:                                    # another session indexed a different paper
             reader.index(paper, display)
         try:
-            result = reader.ask(question)
+            kind = overview.detect(question)                             # a general question: answered in parts
+            result = overview.run(reader, question, kind) if kind else reader.ask(question)
         except Exception as e:                                           # one message for every failure
             result = {"status": "abstain", "debug": {"reason": f"error: {type(e).__name__}: {e}"}}
         debug = json.loads(json.dumps(result["debug"]))                  # gr.JSON needs str keys (p_to_idx)

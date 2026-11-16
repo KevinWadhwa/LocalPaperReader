@@ -5,6 +5,7 @@ the interface app.py builds on a local port and shows it in the window. Closing 
 the web engine the system already has (pywebview), so none is shipped.
 
     PYTHONPATH=. python desktop.py        # from a checkout: no download if the models are in runs/gguf
+    PYTHONPATH=. python desktop.py --browser [--no-browser] [--port N]    # no window: app.py's browser mode
 """
 import json
 import os
@@ -105,6 +106,13 @@ def main():
     os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")          # offline: no version check, no telemetry
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    if "--browser" in sys.argv:                     # fallback if the window fails, and how a bundle is tested
+        sys.argv.remove("--browser")                # headless; the models must already be on disk
+        import app
+        if sys.stdout is None:                      # Windows, windowed build
+            os.makedirs(app.data_dir(), exist_ok=True)
+            sys.stdout = sys.stderr = open(os.path.join(app.data_dir(), "app.log"), "a", buffering=1)
+        return app.main()
     api = Api()
     window = webview.create_window("LocalPaperReader", html=PAGE, js_api=api, width=1100, height=900,
                                    min_size=(720, 600))
