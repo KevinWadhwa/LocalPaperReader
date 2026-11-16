@@ -26,10 +26,16 @@ PAGE = """<!doctype html>
   h1 { font-size: 22px; margin: 0 0 18px; }
   #msg { white-space: pre-wrap; line-height: 1.5; }
   #bar { display: none; height: 8px; background: #E9E5DB; border-radius: 4px; margin: 18px 0 8px; overflow: hidden; }
-  #fill { height: 100%; width: 0; background: #E0603A; }
+  #fill { height: 100%; width: 0; background: #1E3176; }
   #count { display: none; font-size: 14px; opacity: .7; }
   button { display: none; margin-top: 18px; font: inherit; padding: 8px 22px; border: 0; border-radius: 6px;
-           background: #E0603A; color: #fff; cursor: pointer; }
+           background: #2F6B4A; color: #fff; cursor: pointer; }
+  @media (prefers-color-scheme: dark) {             /* the colours of readergui/styling.py */
+    body { color: #ECE9E2; background: #000; }
+    #bar { background: #26282C; }
+    #fill { background: #3952AC; }
+    button { background: #3A7F59; }
+  }
 </style></head><body><main>
   <h1>LocalPaperReader</h1>
   <div id="msg">Starting…</div>
