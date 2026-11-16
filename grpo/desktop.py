@@ -7,8 +7,10 @@ the web engine the system already has (pywebview), so none is shipped.
     PYTHONPATH=. python desktop.py        # from a checkout: no download if the models are in runs/gguf
     PYTHONPATH=. python desktop.py --browser [--no-browser] [--port N]    # no window: app.py's browser mode
 """
+import base64
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -18,25 +20,33 @@ import webview
 
 CONFIG = "configs/reader_4b_gguf.json"
 
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
 PAGE = """<!doctype html>
 <html><head><meta charset="utf-8"><style>
-  body { font: 16px -apple-system, "Segoe UI", sans-serif; color: #22252B; background: #FFFDF8; margin: 0;
+  /* the look of the app's start screen (readergui/styling.py) */
+  body { font: 16px -apple-system, "Segoe UI", system-ui, sans-serif; color: #22252B; background: #FFFDF8; margin: 0;
          height: 100vh; display: flex; align-items: center; justify-content: center; }
   main { width: min(560px, 86vw); text-align: center; }
-  h1 { font-size: 22px; margin: 0 0 18px; }
-  #msg { white-space: pre-wrap; line-height: 1.5; }
+  img { height: 96px; }
+  img.dark { display: none; }
+  h1 { font-size: 20px; font-weight: 600; margin: 14px 0 10px; }
+  #msg { white-space: pre-wrap; line-height: 1.5; color: #5A5E66; }
   #bar { display: none; height: 8px; background: #E9E5DB; border-radius: 4px; margin: 18px 0 8px; overflow: hidden; }
   #fill { height: 100%; width: 0; background: #1E3176; }
-  #count { display: none; font-size: 14px; opacity: .7; }
-  button { display: none; margin-top: 18px; font: inherit; padding: 8px 22px; border: 0; border-radius: 6px;
-           background: #2F6B4A; color: #fff; cursor: pointer; }
-  @media (prefers-color-scheme: dark) {             /* the colours of readergui/styling.py */
+  #count { display: none; font-size: 13px; color: #5A5E66; }
+  button { display: none; margin-top: 18px; font: inherit; font-weight: 500; padding: 10px 24px; border: 0;
+           border-radius: 22px; background: #2F6B4A; color: #fff; cursor: pointer; }
+  @media (prefers-color-scheme: dark) {
     body { color: #ECE9E2; background: #000; }
+    img.light { display: none; }
+    img.dark { display: inline; }
+    #msg, #count { color: #B4B6BB; }
     #bar { background: #26282C; }
     #fill { background: #3952AC; }
     button { background: #3A7F59; }
   }
 </style></head><body><main>
+  <img class="light" alt="" src="__BOOK__"><img class="dark" alt="" src="__BOOK_DARK__">
   <h1>LocalPaperReader</h1>
   <div id="msg">Starting…</div>
   <div id="bar"><div id="fill"></div></div><div id="count"></div>
@@ -54,6 +64,15 @@ PAGE = """<!doctype html>
     el('count').textContent = (done / 1e9).toFixed(2) + ' of ' + (total / 1e9).toFixed(2) + ' GB';
   }
 </script></body></html>"""
+
+
+def page():
+    """The loading page with the app's book, still, in its light and dark drawings."""
+    out = PAGE
+    for mark, name in (("__BOOK__", "01-flip-through.svg"), ("__BOOK_DARK__", "01-flip-through-dark.svg")):
+        svg = re.sub(rb"animation:[^;}]*;?", b"", open(os.path.join(APP_DIR, "icons", name), "rb").read())
+        out = out.replace(mark, "data:image/svg+xml;base64," + base64.b64encode(svg).decode())
+    return out
 
 
 class Api:
@@ -120,7 +139,7 @@ def main():
             sys.stdout = sys.stderr = open(os.path.join(app.data_dir(), "app.log"), "a", buffering=1)
         return app.main()
     api = Api()
-    window = webview.create_window("LocalPaperReader", html=PAGE, js_api=api, width=1100, height=900,
+    window = webview.create_window("LocalPaperReader", html=page(), js_api=api, width=1100, height=900,
                                    min_size=(720, 600))
     webview.start(startup, (window, api))           # returns when the window is closed
     os._exit(0)                                     # stop the server and model threads with it

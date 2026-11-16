@@ -110,8 +110,9 @@ CSS = FONTS + f"""
 #lpr-head {{ flex: 1 1 0; min-width: 0; }}
 .lpr-head {{ display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 16px;
             min-height: {TOP_ICON}px; color: var(--lpr-text); }}
-.lpr-head-text {{ min-width: 0; }}
-.lpr-title {{ font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+.lpr-head-text {{ min-width: 0; padding-right: {(OPEN_BUTTON + 16) // 2}px; }}
+.lpr-title {{ display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-weight: 600;
+             line-height: 1.3; }}
 .lpr-sub {{ font-size: {SMALL_SIZE}px; color: var(--lpr-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
 .lpr-head-stage {{ display: flex; align-items: center; gap: 14px; color: var(--lpr-muted); }}
 .lpr-top-slot {{ transform: translateX(-{(OPEN_BUTTON + 16) // 2}px); }}
@@ -119,6 +120,7 @@ CSS = FONTS + f"""
 /* conversation */
 #lpr-chat {{ border: 0 !important; background: transparent !important; box-shadow: none !important; min-height: 300px; }}
 #lpr-chat .bubble-wrap {{ background: transparent !important; }}
+#lpr-chat .prose.chatbot.md {{ opacity: 1 !important; }}
 #lpr-chat .message-wrap {{ width: 100%; max-width: {COLUMN}px; margin-left: auto; margin-right: auto; }}
 #lpr-chat .user {{ padding: 10px 16px !important; border: 0 !important; border-radius: 18px 18px 4px 18px !important;
                   background: var(--lpr-question) !important; box-shadow: none !important; font-family: {QUESTION_FONT}; }}
@@ -157,6 +159,7 @@ CSS = FONTS + f"""
 .lpr-src:not([open]) .lpr-para {{ display: none; }}
 .lpr-para {{ margin-top: 8px; padding: 14px 18px; border-radius: 4px 18px 18px 18px; background: var(--lpr-source);
             color: var(--lpr-text); font-family: {SOURCE_FONT}; font-size: {SOURCE_SIZE}px; line-height: 1.6; }}
+.lpr-para-sec {{ margin-bottom: 6px; color: var(--lpr-source-refs); font-family: {UI_FONT}; font-size: {SMALL_SIZE}px; font-weight: 600; }}
 .lpr-para mark {{ padding: 1px 2px; border-radius: 3px; background: var(--lpr-highlight); color: inherit; }}
 .lpr-refs {{ margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--lpr-source-line); color: var(--lpr-source-refs);
             font-family: {UI_FONT}; font-size: {SMALL_SIZE}px; }}

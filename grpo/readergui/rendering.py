@@ -133,24 +133,41 @@ def oval(text):
     return f'<div class="lpr-oval">{html.escape(text)}</div>'
 
 
-def _source(q, refs):
-    """One quote: "View source" and its section, opening to the paragraph with the quote marked and the
-    references it cites."""
-    section = (q["section"] or "").split(":::")[-1].strip() or "Unnamed section"
-    cited = "".join(f"<div>{html.escape(r['reference'] or r['cited_as'])}</div>" for r in refs)
-    cited = f'<div class="lpr-refs">{cited}</div>' if cited else ""
-    paragraph = tidy(q["before"] + MARK[0] + q["quote"] + MARK[1] + q["after"])
+def _sources(quotes, refs):
+    """All of an answer's quotes behind one "View source": each quoted paragraph once, in its own bubble, with
+    every quote from it marked and the references those quotes cite. `refs`: the references of each quote."""
+    paragraphs = {}                                 # paragraph text -> [section, marked spans, references]
+    for q, cited in zip(quotes, refs):
+        text = q["before"] + q["quote"] + q["after"]
+        entry = paragraphs.setdefault(text, [(q["section"] or "").split(":::")[-1].strip() or "Unnamed section", [], []])
+        entry[1].append((len(q["before"]), len(q["before"]) + len(q["quote"])))
+        entry[2] += cited
+    if not paragraphs:
+        return ""
+    names = list(dict.fromkeys(e[0] for e in paragraphs.values()))
+    out = ""
+    for text, (section, spans, cited) in paragraphs.items():
+        marked, last = "", 0
+        for start, end in sorted(spans):            # overlapping quotes become one mark
+            if start >= last:
+                marked += text[last:start] + MARK[0] + text[start:end] + MARK[1]
+            elif end > last:
+                marked = marked[:-1] + text[last:end] + MARK[1]
+            last = max(last, end)
+        label = f'<div class="lpr-para-sec">{html.escape(section)}</div>' if len(paragraphs) > 1 else ""
+        cited = "".join(f"<div>{html.escape(r['reference'] or r['cited_as'])}</div>" for r in cited)
+        cited = f'<div class="lpr-refs">{cited}</div>' if cited else ""
+        out += f'<div class="lpr-para">{label}{tidy(marked + text[last:])}{cited}</div>'
     return (f'<details class="lpr-src"><summary><span class="lpr-view">View source</span>'
-            f'<span>{html.escape(section)}</span></summary><div class="lpr-para">{paragraph}{cited}</div></details>')
+            f'<span>{html.escape(" · ".join(names))}</span></summary>{out}</details>')
 
 
 def _answer(a, part=None):
     """One answer: its confidence line (led by the part's name in an overview), the answer, its sources."""
-    by_ph = {r["placeholder"]: r for r in a["references"]}
-    left = dict(by_ph)                              # cited by the answer alone: listed under the first source
+    left = {r["placeholder"]: r for r in a["references"]}
     per_quote = [[left.pop(ph) for ph in q.get("references", []) if ph in left] for q in a["quotes"]]
     if per_quote:
-        per_quote[0] += list(left.values())
+        per_quote[0] += list(left.values())         # cited by the answer alone: with the first quote
     label = CONFIDENCE.get(a.get("confidence"), "")
     if part:
         label = f'<span class="lpr-part">{html.escape(part)}</span>' + (f" · {label}" if label else "")
@@ -158,8 +175,24 @@ def _answer(a, part=None):
             if label else "")
     answer = (f'<div class="lpr-hex"><span class="lpr-cap"></span><div class="lpr-hex-text">{tidy(a["answer"])}</div>'
               f'<span class="lpr-cap lpr-cap-r"></span></div>')
-    sources = "".join(_source(q, refs) for q, refs in zip(a["quotes"], per_quote))
-    return f'<div class="lpr-answer">{line}{answer}{sources}</div>'
+    return f'<div class="lpr-answer">{line}{answer}{_sources(a["quotes"], per_quote)}</div>'
+
+
+WORD_RE = re.compile(r"[a-z]+|\d+(?:[.,]\d+)*")
+COMMON = set("a an the of in on for to and or with by is are was were be this that it its as at from than not no".split())
+
+
+def _repeats(answer, earlier):
+    """Whether an overview part says what an earlier part already said: the same numbers, or mostly the same
+    words. A display rule only; overview.py keeps every part it found."""
+    words = set(WORD_RE.findall(answer.lower())) - COMMON
+    numbers = {w for w in words if w[0].isdigit()}
+    for other in earlier:
+        other_numbers = {w for w in other if w[0].isdigit()}
+        if (numbers and numbers == other_numbers) or len(words & other) >= 0.6 * len(words | other):
+            return True
+    earlier.append(words)
+    return False
 
 
 def render(result):
@@ -168,7 +201,9 @@ def render(result):
     if result["status"] == "answer":
         out = _answer(result)
     elif result["status"] == "overview" and result["found"]:
-        parts = "".join(_answer(a, a["label"]) for a in result["aspects"] if a["status"] == "answer")
+        said = []
+        parts = "".join(_answer(a, a["label"]) for a in result["aspects"]
+                        if a["status"] == "answer" and not _repeats(a["answer"], said))
         missing = ", ".join(m[:1].lower() + m[1:] for m in result["missing"])
         missing = f'<div class="lpr-missing">Not found with enough confidence: {html.escape(missing)}.</div>' if missing else ""
         out = f"<div>{parts}{missing}</div>"
