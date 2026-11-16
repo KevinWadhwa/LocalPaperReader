@@ -15,8 +15,10 @@ import gradio as gr
 
 from qasper import overview
 from qasper.pdf_parse_v3 import parse_pdf
-from qasper.reader import Reader
 from qasper.reward import ABSTAIN
+from readergui import styling
+from readergui.rendering import ASSESSING, INDEXING, PARSING, WRITING, looking_in, stage
+from readergui.stages import StagedReader, ask_stages
 
 CAPTION = "Figures and tables"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))        # the app's own folder, also inside a bundle
@@ -133,18 +135,18 @@ def render_overview(result):
 def build_demo(cfg):
     """The reader and the interface for a config from load_config. The caller launches it."""
     # a gguf config keeps sft_path / adapter_path under "provenance" (not loaded), so .get here
-    reader = Reader(cfg.get("sft_path"), cfg.get("adapter_path"), cfg["tiers"], cfg["k"],
-                    cfg.get("device", "auto"), cfg.get("dtype", "fp32"),
-                    backend=cfg.get("backend", "hf"),
-                    verifier_gguf=cfg.get("verifier_gguf"), generator_gguf=cfg.get("generator_gguf"),
-                    n_gpu_layers=cfg.get("n_gpu_layers", -1),
-                    n_ctx=cfg.get("n_ctx", 8192),
-                    verifier_n_ctx=cfg.get("verifier_n_ctx", 4096),
-                    tokenizer_path=cfg.get("tokenizer_path"),
-                    embedder_path=cfg.get("embedder_path"),
-                    copy_ahead=cfg.get("copy_ahead", False),
-                    generator_lora=cfg.get("generator_lora"),
-                    shared_cache=cfg.get("shared_cache", False))
+    reader = StagedReader(cfg.get("sft_path"), cfg.get("adapter_path"), cfg["tiers"], cfg["k"],
+                          cfg.get("device", "auto"), cfg.get("dtype", "fp32"),
+                          backend=cfg.get("backend", "hf"),
+                          verifier_gguf=cfg.get("verifier_gguf"), generator_gguf=cfg.get("generator_gguf"),
+                          n_gpu_layers=cfg.get("n_gpu_layers", -1),
+                          n_ctx=cfg.get("n_ctx", 8192),
+                          verifier_n_ctx=cfg.get("verifier_n_ctx", 4096),
+                          tokenizer_path=cfg.get("tokenizer_path"),
+                          embedder_path=cfg.get("embedder_path"),
+                          copy_ahead=cfg.get("copy_ahead", False),
+                          generator_lora=cfg.get("generator_lora"),
+                          shared_cache=cfg.get("shared_cache", False))
     if reader.backend == "gguf":
         print(f"backend gguf, n_gpu_layers {cfg.get('n_gpu_layers', -1)}, embedder on {reader.device}")
     else:
@@ -152,40 +154,62 @@ def build_demo(cfg):
     placeholder_note = (" · confidence cutpoints are placeholders: every rule-passing answer is shown as low"
                         if cfg.get("tiers_placeholder") else "")
 
-    def upload(path, progress=gr.Progress()):
+    def upload(path):
         if not path:
-            return None, "No file.", []
-        progress(0.1, desc="Parsing the PDF")
+            yield None, "No file.", []
+            return
+        yield None, stage(PARSING), []
         try:
             paper, display = parse_pdf(path, os.path.basename(path).removesuffix(".pdf"))
         except Exception as e:                                           #bad PDF or scanned
-            return None, f"Couldn't parse the PDF: {e}", []
-        progress(0.7, desc="Indexing")
-        reader.index(paper, display)
+            yield None, f"Couldn't parse the PDF: {html.escape(str(e))}", []
+            return
+        yield None, stage(INDEXING), []
+        with reader.busy:                                                # not under a question still in the model
+            reader.index(paper, display)
         n_cap = paper.sections.count(CAPTION)
         n_sec = len(set(s for s in paper.sections if s not in ("Abstract", CAPTION)))
         n_ref = sum(ph.startswith("BIBREF") for ph in display)
         status = (f"**{html.escape(paper.title or paper.paper_id)}**: parsed {len(paper.paragraphs) - n_cap} paragraphs, "
                   f"{n_sec} sections, {n_cap} captions, {n_ref} cited references{placeholder_note}")
-        return (paper, display), status, []
+        yield (paper, display), status, []
 
     def ask(question, history, state):
         question = (question or "").strip()
         if not question:
-            return history, "", gr.update()
+            yield history, "", gr.update()
+            return
         history = history + [{"role": "user", "content": question}]
+
+        def reply(content):                                              # the chat with this as the answer so far
+            return history + [{"role": "assistant", "content": content}], "", gr.update()
+
         if state is None:
-            return history + [{"role": "assistant", "content": "Upload a paper first."}], "", gr.update()
+            yield reply("Upload a paper first.")
+            return
+        yield history, "", gr.update()                                   # the question shows at once
         paper, display = state
         if reader.paper is not paper:                                    # another session indexed a different paper
-            reader.index(paper, display)
+            with reader.busy:
+                reader.index(paper, display)
         try:
             kind = overview.detect(question)                             # a general question: answered in parts
-            result = overview.run(reader, question, kind) if kind else reader.ask(question)
+            if kind:
+                yield reply(stage(ASSESSING))                            # one message for all its sub-questions
+                with reader.busy:
+                    result = overview.run(reader, question, kind)
+            else:
+                for name, value in ask_stages(reader, question):
+                    if name == "assess":
+                        yield reply(stage(ASSESSING, looking_in(value["sections"], value["n_passages"])))
+                    elif name == "write":
+                        yield reply(stage(WRITING))
+                    else:
+                        result = value
         except Exception as e:                                           # one message for every failure
             result = {"status": "abstain", "debug": {"reason": f"error: {type(e).__name__}: {e}"}}
         debug = json.loads(json.dumps(result["debug"]))                  # gr.JSON needs str keys (p_to_idx)
-        return history + [{"role": "assistant", "content": render(result)}], "", debug
+        yield history + [{"role": "assistant", "content": render(result)}], "", debug
 
     chat_kwargs = {"type": "messages"} if "type" in inspect.signature(gr.Chatbot).parameters else {}
     with gr.Blocks(title="LocalPaperReader") as demo:
@@ -198,8 +222,8 @@ def build_demo(cfg):
         show_debug = gr.Checkbox(label="debug", value=False)
         debug = gr.JSON(label="debug", visible=False)
 
-        pdf.upload(upload, pdf, [state, status, chat])
-        question.submit(ask, [question, chat, state], [chat, question, debug])
+        pdf.upload(upload, pdf, [state, status, chat], show_progress="hidden")       # the stages are the progress
+        question.submit(ask, [question, chat, state], [chat, question, debug], show_progress="hidden")
         show_debug.change(lambda on: gr.update(visible=on), show_debug, debug)
 
     return demo
@@ -208,7 +232,8 @@ def build_demo(cfg):
 def main():
     args = parse_args()
     build_demo(load_config(args.config)).queue().launch(server_name="127.0.0.1", server_port=args.port,
-                                                        show_error=True, inbrowser=not args.no_browser)
+                                                        show_error=True, inbrowser=not args.no_browser,
+                                                        **styling.LAUNCH)
 
 
 if __name__ == "__main__":

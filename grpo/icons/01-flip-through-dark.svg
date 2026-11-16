@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="240" height="240" style="overflow:visible"><style>.ib .s{fill:none;stroke:#F2EBDD;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.ib .p{fill:#24272D;stroke:#F2EBDD;stroke-width:3;stroke-linejoin:round;stroke-linecap:round}
+.ib .t{fill:none;stroke:#F2EBDD;stroke-width:calc(3 * .6px);stroke-linecap:round;opacity:.5}
+.ib .a{fill:none;stroke:#EE7A52;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.ib .bf{transform-origin:60px 0;animation:ibflip calc(1.1s / 1.25) cubic-bezier(.55,0,.35,1) infinite}
+@keyframes ibflip{0%,8%{transform:scaleX(1) translateY(0)}36%{transform:scaleX(0) translateY(-4px)}64%,100%{transform:scaleX(-1) translateY(0)}}</style>
+<g class="ib">
+<path class="s" d="M10 42 L10 96 Q36 90 60 98 Q84 90 110 96 L110 42"/>
+<path class="a" d="M86 92 L86 108 L90 104 L94 108 L94 91"/>
+<path class="p" d="M60 38 Q38 28 16 34 L16 90 Q38 84 60 94 Z"/><path class="t" d="M24 46 Q38 43 52 47"/><path class="t" d="M24 54 Q38 51 52 55"/><path class="t" d="M24 62 Q38 59 52 63"/><path class="t" d="M24 70 Q38 67 52 71"/><path class="t" d="M34 78 Q38 75 52 79"/>
+<path class="p" d="M60 38 Q82 28 104 34 L104 90 Q82 84 60 94 Z"/><path class="t" d="M68 47 Q82 43 96 46"/><path class="t" d="M68 55 Q82 51 96 54"/><path class="t" d="M68 63 Q82 59 96 62"/><path class="t" d="M68 71 Q82 67 96 70"/><path class="t" d="M68 79 Q82 75 86 78"/>
+<g class="bf"><path class="p" d="M60 38 Q82 28 104 34 L104 90 Q82 84 60 94 Z"/><path class="t" d="M68 47 Q82 43 96 46"/><path class="t" d="M68 55 Q82 51 96 54"/><path class="t" d="M68 63 Q82 59 96 62"/><path class="t" d="M68 71 Q82 67 96 70"/><path class="t" d="M68 79 Q82 75 86 78"/></g>
+<path class="s" d="M60 38 L60 94"/>
+</g></svg>

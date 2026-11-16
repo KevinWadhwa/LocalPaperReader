@@ -95,7 +95,7 @@ def startup(window, api):
         say("Loading the model…")
         demo = app.build_demo(cfg)
         _, url, _ = demo.queue().launch(server_name="127.0.0.1", show_error=True, inbrowser=False,
-                                        prevent_thread_lock=True)      # no port given: gradio picks a free one
+                                        prevent_thread_lock=True, **app.styling.LAUNCH)    # no port: a free one
         window.load_url(url)
     except Exception:
         traceback.print_exc()

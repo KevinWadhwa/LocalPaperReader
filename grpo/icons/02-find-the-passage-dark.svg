@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="240" height="240" style="overflow:visible"><style>.is .s{fill:none;stroke:#F2EBDD;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.is .p{fill:#24272D;stroke:#F2EBDD;stroke-width:3;stroke-linejoin:round;stroke-linecap:round}
+.is .t{fill:none;stroke:#F2EBDD;stroke-width:calc(3 * .6px);stroke-linecap:round;opacity:.5}
+.is .a{fill:none;stroke:#EE7A52;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.is .hl{fill:none;stroke:#EE7A52;stroke-width:calc(3 * 2.6px);stroke-linecap:round;opacity:.3;stroke-dasharray:1 1}
+.is .h1{animation:ish1 calc(4.4s / 1.25) linear infinite}
+.is .h2{animation:ish2 calc(4.4s / 1.25) linear infinite}
+.is .mg{animation:ismg calc(4.4s / 1.25) ease-in-out infinite}
+@keyframes ish1{0%,6%{stroke-dashoffset:1;opacity:.3}36%{stroke-dashoffset:0;opacity:.3}84%{stroke-dashoffset:0;opacity:.3}94%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes ish2{0%,46%{stroke-dashoffset:1;opacity:.3}76%{stroke-dashoffset:0;opacity:.3}84%{stroke-dashoffset:0;opacity:.3}94%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes ismg{0%,6%{transform:translate(36px,52px)}36%{transform:translate(76px,52px);animation-timing-function:ease-in-out}46%{transform:translate(36px,64px)}76%{transform:translate(80px,64px)}86%{transform:translate(80px,64px)}100%{transform:translate(36px,52px)}}</style>
+<g class="is">
+<path class="p" d="M24 14 H78 L94 30 V106 H24 Z"/>
+<path class="s" d="M78 14 V30 H94"/>
+<path class="hl h1" pathLength="1" d="M34 52 H76"/>
+<path class="hl h2" pathLength="1" d="M34 64 H82"/>
+<path class="s" d="M34 28 H60"/>
+<path class="t" d="M34 40 H82"/><path class="t" d="M34 52 H76"/><path class="t" d="M34 64 H82"/><path class="t" d="M34 76 H70"/><path class="t" d="M34 88 H78"/>
+<g class="mg">
+<path class="s" d="M10 10 L24 24" style="stroke-width:calc(3 * 2.2px)"/>
+<circle class="s" cx="0" cy="0" r="14" style="fill:#24272D;fill-opacity:.35"/>
+<path class="s" d="M-8.5 -2 A9 9 0 0 1 -2 -8.5" style="stroke-width:calc(3 * .7px)"/>
+</g></g></svg>
