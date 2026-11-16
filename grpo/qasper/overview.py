@@ -135,12 +135,13 @@ def numbers_ok(answer, quotes):
                for n in {m.replace(",", "") for m in NUM_RE.findall(answer)})
 
 
-def answer_one(reader, question, context, p_to_idx):
+def answer_one(reader, question, context, p_to_idx, reuse=False):
     """One sub-question through the judge, the generator and the reader's rules, plus the number check.
-    KEEP IN STEP with Reader._ask: the same rule sequence, copied so the normal pipeline stays untouched."""
+    KEEP IN STEP with Reader._ask: the same rule sequence, copied so the normal pipeline stays untouched.
+    reuse: the GGUF judge keeps the passages read for the previous sub-question (same passages, new question)."""
     paper = reader.paper
     prompt = format_prompt(reader.tok, context, question)
-    lp = reader.abstain_score(prompt)
+    lp = reader.gguf.abstain_score_reuse(prompt) if reuse else reader.abstain_score(prompt)
     score = -lp
     confidence = reader.confidence(score)
     debug = {"question": question, "reason": None, "abstain_score": lp, "verifier_score": score, "outcome": None,
@@ -191,11 +192,14 @@ def run(reader, question, kind):
         hit = reader._answers[key]
         return {**hit, "debug": {**hit["debug"], "cached": True}}
     paper, spec = reader.paper, TEMPLATES[kind]
+    reuse = reader.gguf is not None and spec["passages"] == "section"     # one passage set: read it once
+    if reader.gguf is not None:
+        reader.gguf.forget_prefix()
     aspects, missing, seen, sections = [], [], {}, []
     for (label, sub), ranked in zip(spec["aspects"], passage_sets(reader, kind)):
         context, p_to_idx = build_context(paper, ranked, reader.k)
         sections += [paper.sections[i] for i in p_to_idx.values()]
-        r = answer_one(reader, sub, context, p_to_idx)
+        r = answer_one(reader, sub, context, p_to_idx, reuse)
         if r["status"] != "answer":
             missing.append(label)
             aspects.append({"label": label, "status": "withheld", "debug": r["debug"]})

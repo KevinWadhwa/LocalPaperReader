@@ -56,7 +56,7 @@ def repair_quotes(quotes, answer):
     return out, edits
 
 
-def teacher_forced_logp(llm, p_ids, comp_ids):
+def teacher_forced_logp(llm, p_ids, comp_ids, keep=0):
     """log P(comp_ids | p_ids) from a llama-cpp-python Llama built with logits_all=False.
 
     Llama.eval only keeps per-position logits with logits_all=True, and then holds an n_ctx x vocab float32 buffer
@@ -64,14 +64,17 @@ def teacher_forced_logp(llm, p_ids, comp_ids):
     the same positions as Llama.eval, but flags logits only on the rows that predict a completion token (plus each
     chunk's last token, as set_batch always does) and reads them with get_logits_ith. The forward pass is the same;
     only the number of output rows differs. Uses llama-cpp-python 0.3.36's private _ctx/_batch: re-check it, and
-    re-run the old-vs-new equivalence gate, after any llama-cpp-python upgrade."""
+    re-run the old-vs-new equivalence gate, after any llama-cpp-python upgrade.
+    `keep`: the first `keep` prompt tokens are already in the cache, read with the adapter off, and are not re-read
+    (0 = read everything, as before). The rest is read in n_batch chunks from `keep`, so scores can differ from a
+    full read by rounding."""
     import numpy as np
     ids = list(p_ids) + list(comp_ids)
     first = len(p_ids) - 1                      # the row at position first + j predicts comp_ids[j]
     llm.reset()
-    llm._ctx.kv_cache_seq_rm(-1, 0, -1)         # what Llama.eval does after reset()
+    llm._ctx.kv_cache_seq_rm(-1, keep, -1)      # what Llama.eval does after reset() (keep=0: empty the cache)
     n_vocab, total = llm.n_vocab(), 0.0
-    for start in range(0, len(ids), llm.n_batch):          # the same chunks as Llama.eval
+    for start in range(keep, len(ids), llm.n_batch):       # the same chunks as Llama.eval when keep=0
         chunk = ids[start:start + llm.n_batch]
         llm._batch.set_batch(batch=chunk, n_past=start, logits_all=False)
         rows = [j for j in range(len(chunk)) if first <= start + j <= len(ids) - 2]
@@ -192,6 +195,8 @@ class GGUFBackend:
         `shared_cache` (off until gated on the Mac) reuses that cache on purpose, but only up to the question:
         from the question on, the prompt is re-read with the adapter on, so the paragraphs are read once.
         fp32 dev gate (2026-11-14): strict F1 +0.005 [-0.005, +0.016], rule failures 60 vs 60.
+        abstain_score_reuse extends it to a run of prompts sharing their passages (overview sub-questions): the
+        passages are read once, adapter off, and each prompt reads only its question part.
     Scoring and generation reproduce evaluate.py/gguf_verifier_gate exactly:
     tokenise the prompt with add_bos=True, special=True (create_completion's default special=False would
     mangle the chat-template tokens), teacher-force the abstain completion and sum log_softmax over its
@@ -211,6 +216,7 @@ class GGUFBackend:
         self.copy_ahead = copy_ahead                        # generate with copy_ahead_generate (off until gated)
         self.shared_cache = shared_cache and generator_lora is not None   # needs the one shared context
         self._judged = None                                 # prompt ids whose adapter-off read is in the cache
+        self._prefix = None                                 # passage tokens whose adapter-off read is in the cache
         common = dict(n_gpu_layers=n_gpu_layers, n_threads=n_threads, verbose=False)
         if generator_lora:                                  # one file: the SFT, plus GRPO's adapter to generate
             import ctypes
@@ -279,12 +285,34 @@ class GGUFBackend:
         """logP(<answer>ABSTAIN</answer><|im_end|> | prompt) through the verifier GGUF. Returns the same
         (negative) log-prob the HF path returns, so the reader's s = -lp and the tiers are unchanged."""
         self._adapter(False)
-        self._judged = None                                 # the cache is about to be overwritten
+        self._judged = self._prefix = None                  # the cache is about to be overwritten
         p_ids = self.verifier.tokenize(prompt.encode(), add_bos=True, special=True)
         fitted = self._fit(p_ids)
         lp = teacher_forced_logp(self.verifier, fitted, self.comp_ids)
         if self.shared_cache and fitted is p_ids:           # a truncated read can't be reused
             self._judged = p_ids
+        return lp
+
+    def forget_prefix(self):
+        """Start a new run of abstain_score_reuse: nothing cached counts as shared passages."""
+        self._prefix = None
+
+    def abstain_score_reuse(self, prompt):
+        """abstain_score for one of several prompts that share their passages and differ only from the question on
+        (overview sub-questions). When the cache holds this prompt's passages, read with the adapter off by the
+        previous call, only the question part is read. Equal to abstain_score up to rounding: the prompt is read in
+        different chunks. Falls back to abstain_score for a truncated prompt or without shared_cache."""
+        if not self.shared_cache:
+            return self.abstain_score(prompt)
+        p_ids = self.verifier.tokenize(prompt.encode(), add_bos=True, special=True)
+        if len(p_ids) > self.verifier_n_ctx - len(self.comp_ids):     # _fit would truncate it
+            return self.abstain_score(prompt)
+        self._adapter(False)
+        t0 = self._tail_start(prompt, p_ids)
+        keep = t0 if self._prefix is not None and self._prefix == p_ids[:t0] else 0
+        self._judged = self._prefix = None                  # in case the read fails half way
+        lp = teacher_forced_logp(self.verifier, p_ids, self.comp_ids, keep=keep)
+        self._prefix, self._judged = p_ids[:t0], p_ids      # generate keeps the passages and re-reads the question
         return lp
 
     def generate(self, prompt):
@@ -295,6 +323,8 @@ class GGUFBackend:
         # shared_cache: keep the judge's read of this prompt up to the tail (0 = read the whole prompt again)
         keep = self._tail_start(prompt, p_ids) if self._judged == p_ids else 0
         self._judged = None                                 # the cache is used once
+        if keep == 0:                                       # the whole prompt is re-read with the adapter on
+            self._prefix = None
         if self.copy_ahead:                                 # same text, fewer model steps (resets the context itself)
             return copy_ahead_generate(self.generator, p_ids, MAX_NEW_TOKENS, keep=keep)
         if self._lora is not None:                          # the cache holds the verifier's adapter-off pass of this
@@ -428,23 +458,35 @@ class Reader:
         i = paragraph.find(quote)
         before, after = paragraph[:i], paragraph[i + len(quote):]
         r = self._restore
+        cites = [ph for ph in dict.fromkeys(BIBREF_RE.findall(quote)) if ph in self.display]
         return {"p": p, "section": section, "quote": r(quote), "paragraph": r(before) + r(quote) + r(after),
-                "before": r(before), "after": r(after)}
+                "before": r(before), "after": r(after), "references": cites}     # placeholders, as in the answer's list
 
     def ask(self, question):
-        """_ask, with an exact repeat on the same paper answered from memory: the same prompt gives the same
-        greedy result, so recomputing it would only cost time."""
-        if question not in self._answers:
-            self._answers[question] = self._ask(question)
-            return self._answers[question]
-        hit = self._answers[question]
-        return {**hit, "debug": {**hit["debug"], "cached": True}}
+        """ask_stages run to the end: the result alone."""
+        for _, result in self.ask_stages(question):
+            pass
+        return result
+
+    def ask_stages(self, question):
+        """_ask for a display that follows along: yields ("assess", {"sections", "n_passages"}) as the judge
+        starts reading, ("write", None) as the generator starts, then ("done", result). An exact repeat on the
+        same paper is answered from memory (the same prompt gives the same greedy result): "done" alone."""
+        if question in self._answers:
+            hit = self._answers[question]
+            yield "done", {**hit, "debug": {**hit["debug"], "cached": True}}
+            return
+        result = self._answers[question] = yield from self._ask(question)
+        yield "done", result
 
     def _ask(self, question):
+        """A generator: yields the stages, returns the result."""
         paper = self.paper
         ranked = self.retriever.top_k(paper.paper_id, question, self.k)
         context, p_to_idx = build_context(paper, ranked, self.k)
         prompt = format_prompt(self.tok, context, question)
+        sections = [paper.sections[i] for i in p_to_idx.values()]       # reading order
+        yield "assess", {"sections": [s for s in dict.fromkeys(sections) if s], "n_passages": len(p_to_idx)}
         lp = self.abstain_score(prompt)
         score = -lp                                                      # confidence tiers on this score
         confidence = self.confidence(score)
@@ -458,6 +500,7 @@ class Reader:
 
         if confidence is None and self.skip_below_low:                  # abstained whatever it would write
             return abstain("verifier", "not generated")
+        yield "write", None
         raw = self.generate(prompt)
         debug["raw_output"] = raw
         parsed = parse(raw)
