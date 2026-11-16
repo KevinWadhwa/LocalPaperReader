@@ -18,7 +18,7 @@ from qasper.pdf_parse_v3 import parse_pdf
 from qasper.reward import ABSTAIN
 from readergui import styling
 from readergui.rendering import ASSESSING, INDEXING, PARSING, WRITING, looking_in, stage
-from readergui.stages import StagedReader, ask_stages
+from readergui.stages import StagedReader, ask_stages, overview_stages
 
 CAPTION = "Figures and tables"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))        # the app's own folder, also inside a bundle
@@ -194,18 +194,14 @@ def build_demo(cfg):
                 reader.index(paper, display)
         try:
             kind = overview.detect(question)                             # a general question: answered in parts
-            if kind:
-                yield reply(stage(ASSESSING))                            # one message for all its sub-questions
-                with reader.busy:
-                    result = overview.run(reader, question, kind)
-            else:
-                for name, value in ask_stages(reader, question):
-                    if name == "assess":
-                        yield reply(stage(ASSESSING, looking_in(value["sections"], value["n_passages"])))
-                    elif name == "write":
-                        yield reply(stage(WRITING))
-                    else:
-                        result = value
+            steps = overview_stages(reader, question, kind) if kind else ask_stages(reader, question)
+            for name, value in steps:                                    # the same stages for both
+                if name == "assess":
+                    yield reply(stage(ASSESSING, looking_in(value["sections"], value["n_passages"])))
+                elif name == "write":
+                    yield reply(stage(WRITING))
+                else:
+                    result = value
         except Exception as e:                                           # one message for every failure
             result = {"status": "abstain", "debug": {"reason": f"error: {type(e).__name__}: {e}"}}
         debug = json.loads(json.dumps(result["debug"]))                  # gr.JSON needs str keys (p_to_idx)

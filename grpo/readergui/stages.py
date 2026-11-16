@@ -6,6 +6,7 @@ Reader.ask in a thread, so the interface can show each stage while a model call 
 import queue
 import threading
 
+from qasper import overview
 from qasper.context import build_context
 from qasper.reader import BIBREF_RE, Reader
 
@@ -36,25 +37,52 @@ def ask_stages(reader, question):
     paper = reader.paper
     ranked = reader.retriever.top_k(paper.paper_id, question, reader.k)     # the passages Reader._ask will show
     _, p_to_idx = build_context(paper, ranked, reader.k)
-    sections = [(paper.sections[i] or "").split(":::")[0].strip() for i in p_to_idx.values()]   # top level, reading order
-    yield "assess", {"sections": [s for s in dict.fromkeys(sections) if s], "n_passages": len(p_to_idx)}
+    yield "assess", {"sections": _sections(paper, p_to_idx.values()), "n_passages": len(p_to_idx)}
+    yield from _run(reader, lambda: reader.ask(question))
+
+
+def overview_stages(reader, question, kind):
+    """ask_stages for a general question (qasper.overview, unchanged): the same three reports, so it looks like
+    any other question. "write" comes once, as its first sub-answer starts."""
+    if ("overview", question) in reader._answers:                           # overview.run's own memory
+        yield "done", overview.run(reader, question, kind)
+        return
+    sets = [ranked[:reader.k] for ranked in overview.passage_sets(reader, kind)]   # what overview.run will show
+    shown = {i for ranked in sets for i in ranked}
+    yield "assess", {"sections": _sections(reader.paper, shown), "n_passages": len(sets[0])}
+    yield from _run(reader, lambda: overview.run(reader, question, kind))
+
+
+def _sections(paper, indices):
+    """Top-level section names of these paragraphs, in reading order, each once; unnamed ones left out."""
+    names = [(paper.sections[i] or "").split(":::")[0].strip() for i in sorted(indices)]
+    return [s for s in dict.fromkeys(names) if s]
+
+
+def _run(reader, call):
+    """call() in a thread: yields ("write", None) once, as generation first starts, then ("done", its result)."""
     events = queue.Queue()
 
     def work():
         with reader.busy:
             reader.on_write = lambda: events.put(("write", None))
             try:
-                events.put(("done", reader.ask(question)))
+                events.put(("done", call()))
             except Exception as e:                  # raised again below, in the caller's thread
                 events.put(("error", e))
             finally:
                 reader.on_write = None
 
     threading.Thread(target=work, daemon=True).start()
+    wrote = False
     while True:
         name, value = events.get()
         if name == "error":
             raise value
+        if name == "write":
+            if wrote:
+                continue
+            wrote = True
         yield name, value
         if name == "done":
             return
