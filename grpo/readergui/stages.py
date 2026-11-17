@@ -41,16 +41,16 @@ def ask_stages(reader, question):
     yield from _run(reader, lambda: reader.ask(question))
 
 
-def overview_stages(reader, question, kind):
+def overview_stages(reader, question, kind, x=None):
     """ask_stages for a general question (qasper.overview, unchanged): the same three reports, so it looks like
     any other question. "write" comes once, as its first sub-answer starts."""
     if ("overview", question) in reader._answers:                           # overview.run's own memory
-        yield "done", overview.run(reader, question, kind)
+        yield "done", overview.run(reader, question, kind, x)
         return
-    sets = [ranked[:reader.k] for ranked in overview.passage_sets(reader, kind)]   # what overview.run will show
+    sets = [ranked[:reader.k] for ranked in overview.passage_sets(reader, kind, x)]   # what overview.run will show
     shown = {i for ranked in sets for i in ranked}
     yield "assess", {"sections": _sections(reader.paper, shown), "n_passages": len(sets[0])}
-    yield from _run(reader, lambda: overview.run(reader, question, kind))
+    yield from _run(reader, lambda: overview.run(reader, question, kind, x))
 
 
 def _sections(paper, indices):

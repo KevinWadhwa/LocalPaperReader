@@ -20,14 +20,15 @@ from qasper.reward import ABSTAIN, format_ok, norm_ws, parse, quote_check
 # ---- detection: a question is general when, after removing question words and words that refer to the paper,
 # everything left belongs to one type's vocabulary. Flags 0.1-0.3% of QASPER dev/test questions, all of them
 # genuinely general ("What are the contributions of this paper?").
-PHRASES = [r"\b(of|in|from|by|for)? ?(this|the|their|your) (paper|study|work|article|report|research|document|manuscript|thesis)\b",
+PHRASES = [r"\b(of|in|from|by|for)? ?(this|the|their|your) (paper|study|work|article|report|research|document|manuscript|thesis"
+           r"|project|dissertation|preprint|publication)\b",
            r"\bthe authors?\b", r"\bin (short|brief|summary|a nutshell|general)\b", r"\bcan you\b", r"\bcould you\b",
            r"\btell me\b", r"\bgive me\b", r"\bat a high level\b", r"\bhigh level\b"]
 STOP = set("""what which how are is was were be been being the a an of in on for to and or this that these those
 it its they their them we our us you your me i my please do does did briefly brief short quick quickly overall main
 key major most important primary principal there here some any all with from by as at into its paper study article
 document research report authors author give tell list explain describe summarise summarize summary overview outline
-tldr tl dr gist whats s were has have had so where""".split())
+tldr tl dr gist whats s were has have had so where project dissertation preprint publication""".split())
 NEUTRAL = {"summarise", "summarize", "summary", "overview", "outline", "tldr", "tl", "dr", "gist", "describe", "explain"}
 VOCAB = {
     "results": set("""results result findings finding find found outcomes outcome conclude concluded conclusion
@@ -84,14 +85,91 @@ TEMPLATES = {
         ("Approach", "What approach does the paper take?"),
         ("Main contribution", "What is the main contribution?"),
         ("Main findings", "What are the main findings?")]},
+    "concept": {"heading": None, "passages": "section", "aspects": [     # fallback; {x} = the term, also the heading
+        ("Definition", "How is {x} defined?"),
+        ("How it works", "How does {x} work?"),
+        ("Role", "What is the role of {x}?"),
+        ("Origin", "Where was {x} originally proposed?")]},
 }
 SECTIONS = {                                                         # matched anywhere in a section name, lower case
     "results": ["abstract", "result", "experiment", "evaluation", "finding", "discussion", "conclusion", "analysis",
                 "performance"],
     "limitations": ["limitation", "discussion", "conclusion", "future", "error", "analysis", "shortcoming"],
     "about": ["abstract", "introduction", "conclusion"],
+    "concept": ["abstract", "introduction", "method", "approach", "background", "model", "architecture", "framework",
+                "preliminar", "definition", "related", "overview", "proposed"],
 }
 NUM_RE = re.compile(r"\d+(?:[.,]\d+)*")
+
+# ---- language: overview passages skip prose in another language (e.g. a thesis's French summary)
+EN_WORDS = set("the of and to in is that for with as on are this by be we it from an which or at not can our these "
+               "their has have was were".split())
+OTHER_WORDS = {
+    "fr": set("le la les des du un une et est que qui dans pour sur avec par pas sont ces nous cette être au aux ont "
+              "mais plus leur".split()),
+    "de": set("der die das und ist nicht mit den dem ein eine zu von auf für sich des werden wird auch als bei oder".split()),
+    "es": set("el los las del una por con para que es se en como más pero sus este esta son entre".split()),
+    "it": set("il della che di per una sono con non nel alla delle gli questo questa anche come".split()),
+}
+
+
+def english(text):
+    """False only for clear foreign prose: 20+ words, no maths, foreign common words >= 5 and > 2x English."""
+    if "$" in text or "DISPLAYFORM" in text or "INLINEFORM" in text:
+        return True
+    words = re.findall(r"[a-zà-öø-ÿ]+", text.lower())
+    if len(words) < 20:
+        return True
+    count = defaultdict(int)
+    for w in words:
+        count[w] += 1
+    en = sum(count[w] for w in EN_WORDS)
+    other = max(sum(count[w] for w in ws) for ws in OTHER_WORDS.values())
+    return not (other >= 5 and other > 2 * en)
+
+
+# ---- concept fallback: "What is X?" about a term in many paragraphs, tried only when the normal answer is withheld
+_A = r"(?:an? |the )?"
+CONCEPT_PATTERNS = [rf"^(?:what|who) (?:is|are|was|were) {_A}(?P<x>.+?)\??$", rf"^what'?s {_A}(?P<x>.+?)\??$",
+                    rf"^(?:define|explain|describe) {_A}(?P<x>.+?)\.?$", rf"^what does {_A}(?P<x>.+?) mean\??$",
+                    rf"^what is meant by {_A}(?P<x>.+?)\??$", rf"^how does {_A}(?P<x>.+?) work\??$",
+                    rf"^where does {_A}(?P<x>.+?) come from\??$",
+                    rf"^what (?:is|are) the (?:origin|definition|meaning)s? of {_A}(?P<x>.+?)\??$"]
+CONCEPT_BAD = set("""of in for on with by to from their they them this these those that used using between and or do does
+did is are was were be been what which who how why when where whose its it his her our we you your than as at into about
+over under""".split())
+GENERIC = set("""baseline baselines dataset datasets data model models method methods task tasks metric metrics result
+results approach approaches corpus corpora feature features experiment experiments annotator annotators crowdworkers
+system systems benchmark benchmarks setting settings language languages""".split())   # want a list, not a definition
+CONCEPT_MIN_SHARE = 0.10                                             # X in at least this share of paragraphs
+
+
+def concept_term(question):
+    """The term X of a definition-style question, else None."""
+    q = " ".join(question.strip().split())
+    for p in CONCEPT_PATTERNS:
+        m = re.match(p, q, re.I)
+        if m:
+            x = m.group("x").strip(" ?.")
+            words = x.lower().split()
+            if 1 <= len(words) <= 4 and not set(words) & CONCEPT_BAD and x.lower() not in GENERIC:
+                return x
+            return None
+    return None
+
+
+def concept_for(reader, question):
+    """The term when the concept fallback applies to this question on the indexed paper, else None."""
+    x = concept_term(question)
+    return x if x and centrality(reader.paper, x) >= CONCEPT_MIN_SHARE else None
+
+
+def centrality(paper, x):
+    """Share of paragraphs mentioning X (singular or plural)."""
+    xl = x.lower()
+    forms = {xl, xl[:-1] if xl.endswith("s") else xl + "s"}
+    pat = re.compile(r"\b(?:" + "|".join(re.escape(f) for f in forms) + r")\b")
+    return sum(bool(pat.search(p.lower())) for p in paper.paragraphs) / max(len(paper.paragraphs), 1)
 
 
 def fused(retriever, paper_id, question):
@@ -110,21 +188,26 @@ def _top(scores, k, pool=None):
     return sorted(idx, key=lambda i: -scores[i])[:k]
 
 
-def passage_sets(reader, kind):
+def passage_sets(reader, kind, x=None):
     """The paragraph indices shown for each sub-question. "section": one shared set for all of them, from the
     type's sections first, ranked by the sub-questions' summed scores and filled from the rest of the paper.
     "similarity": each sub-question's own top k, as a normal question gets."""
     paper, k, spec = reader.paper, reader.k, TEMPLATES[kind]
-    questions = [q for _, q in spec["aspects"]]
+    questions = [q.format(x=x) for _, q in spec["aspects"]]
+    ok = {i for i, p in enumerate(paper.paragraphs) if english(p)}
     if spec["passages"] == "similarity":
-        return [reader.retriever.top_k(paper.paper_id, q, k) for q in questions]
+        n = len(paper.paragraphs)
+        return [[i for i in reader.retriever.top_k(paper.paper_id, q, n) if i in ok][:k] for q in questions]
     summed = defaultdict(float)
     for q in questions:
         for i, v in fused(reader.retriever, paper.paper_id, q).items():
             summed[i] += v
-    pool = [i for i, s in enumerate(paper.sections) if any(w in (s or "").lower() for w in SECTIONS[kind])]
-    chosen = _top(summed, k, pool)
-    chosen += [i for i in _top(summed, len(summed)) if i not in chosen][:k - len(chosen)]
+    # "about" always shows the abstract (at most two paragraphs)
+    chosen = [i for i, s in enumerate(paper.sections) if s == "Abstract" and i in ok][:2] if kind == "about" else []
+    pool = [i for i, s in enumerate(paper.sections)
+            if i in ok and i not in chosen and any(w in (s or "").lower() for w in SECTIONS[kind])]
+    chosen += _top(summed, k - len(chosen), pool)
+    chosen += [i for i in _top(summed, len(summed)) if i in ok and i not in chosen][:k - len(chosen)]
     return [chosen] * len(questions)
 
 
@@ -184,9 +267,27 @@ def answer_one(reader, question, context, p_to_idx, reuse=False):
             "quotes": shown, "references": refs, "debug": debug}
 
 
-def run(reader, question, kind):
-    """The overview for a general question of type `kind` on the reader's indexed paper. A repeat on the same
-    paper comes from the reader's per-paper answer memory (Reader.index clears it)."""
+def answer(reader, question):
+    """The app's entry point: overview for a general question, else Reader.ask, with the concept fallback if that
+    is withheld."""
+    kind = detect(question)
+    if kind:
+        return run(reader, question, kind)
+    result = reader.ask(question)
+    if result["status"] == "answer":
+        return result
+    x = concept_for(reader, question)
+    if not x:
+        return result
+    concept = run(reader, question, "concept", x)
+    if concept["found"]:
+        return concept
+    return {**result, "debug": {**result["debug"], "concept_fallback": concept["debug"]}}
+
+
+def run(reader, question, kind, x=None):
+    """The overview for a general question of type `kind` (x: the concept term). A repeat on the same paper comes
+    from the reader's per-paper answer memory (Reader.index clears it)."""
     key = ("overview", question)
     if key in reader._answers:
         hit = reader._answers[key]
@@ -196,7 +297,8 @@ def run(reader, question, kind):
     if reader.gguf is not None:
         reader.gguf.forget_prefix()
     aspects, missing, seen, sections = [], [], {}, []
-    for (label, sub), ranked in zip(spec["aspects"], passage_sets(reader, kind)):
+    for (label, sub), ranked in zip(spec["aspects"], passage_sets(reader, kind, x)):
+        sub = sub.format(x=x)
         context, p_to_idx = build_context(paper, ranked, reader.k)
         sections += [paper.sections[i] for i in p_to_idx.values()]
         r = answer_one(reader, sub, context, p_to_idx, reuse)
@@ -212,7 +314,7 @@ def run(reader, question, kind):
         aspects.append({"label": label, **r})
     found = sum(a["status"] in ("answer", "same") for a in aspects)
     names = [s.split(":::")[0].strip() or "Unnamed section" for s in sections]
-    result = {"status": "overview", "kind": kind, "heading": spec["heading"], "found": found,
+    result = {"status": "overview", "kind": kind, "heading": spec["heading"] or x, "found": found,
               "total": len(spec["aspects"]), "aspects": aspects, "missing": missing,
               "sections": list(dict.fromkeys(names)), "n_passages": reader.k,
               "debug": {"overview": kind, "question": question,

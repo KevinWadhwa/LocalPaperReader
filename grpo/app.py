@@ -130,13 +130,19 @@ def build_demo(cfg, debug=False):
         try:
             kind = overview.detect(question)                             # a general question: answered in parts
             steps = overview_stages(reader, question, kind) if kind else ask_stages(reader, question)
-            for name, value in steps:                                    # the same stages for both
-                if name == "assess":
-                    yield reply(stage(ASSESSING, looking_in(value["sections"], value["n_passages"])))
-                elif name == "write":
-                    yield reply(stage(WRITING))
-                else:
-                    result = value
+            x = None
+            while steps:
+                for name, value in steps:                                # the same stages for both
+                    if name == "assess":
+                        yield reply(stage(ASSESSING, looking_in(value["sections"], value["n_passages"])))
+                    elif name == "write":
+                        yield reply(stage(WRITING))
+                    elif x is None or value["found"]:                    # a fallback that finds nothing isn't shown
+                        result = value
+                steps = None
+                if not kind and x is None and result["status"] != "answer":  # withheld "What is X?": concept fallback
+                    x = overview.concept_for(reader, question)
+                    steps = x and overview_stages(reader, question, "concept", x)
         except Exception as e:                                           # one message for every failure
             result = {"status": "abstain", "debug": {"reason": f"error: {type(e).__name__}: {e}"}}
         debug = json.loads(json.dumps(result["debug"]))                  # gr.JSON needs str keys (p_to_idx)
