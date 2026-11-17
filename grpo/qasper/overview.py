@@ -142,6 +142,7 @@ GENERIC = set("""baseline baselines dataset datasets data model models method me
 results approach approaches corpus corpora feature features experiment experiments annotator annotators crowdworkers
 system systems benchmark benchmarks setting settings language languages""".split())   # want a list, not a definition
 CONCEPT_MIN_SHARE = 0.10                                             # X in at least this share of paragraphs
+CONCEPT_FALLBACK = True                                              # False: never try the fallback
 
 
 def concept_term(question):
@@ -160,6 +161,8 @@ def concept_term(question):
 
 def concept_for(reader, question):
     """The term when the concept fallback applies to this question on the indexed paper, else None."""
+    if not CONCEPT_FALLBACK:
+        return None
     x = concept_term(question)
     return x if x and centrality(reader.paper, x) >= CONCEPT_MIN_SHARE else None
 
