@@ -1,9 +1,6 @@
-"""First-launch download of the model files that are too big to ship in the installer.
-
-The config lists them under "downloads". Each entry has the file's name, its size in bytes, its sha256 and its
-parts in order, each with a url and a size (GitHub caps a release file at 2 GiB, so the 2.3 GiB model is uploaded
-as two parts and joined here). A download resumes where it stopped, is checked against the sha256 and only then
-moved into place.
+"""First-launch download of the model files too big for the installer, listed under "downloads" in the config:
+address, size and sha256 for each file, which may come in parts. A download resumes where it stopped and is checked
+against its sha256 before it is moved into place.
 """
 import hashlib
 import os

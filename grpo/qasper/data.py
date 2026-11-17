@@ -1,3 +1,6 @@
+"""Loads QASPER into Paper, Question and Answer records: each paper's paragraphs in reading order with their
+section names (captions last), and each annotator's answer with its evidence located among those paragraphs.
+"""
 import json
 import statistics
 from collections import Counter

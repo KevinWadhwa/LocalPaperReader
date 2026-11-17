@@ -21,3 +21,16 @@ grpo/logs/
 *.json
 !grpo/configs/
 !grpo/configs/*.json
+grpo/configs/reader_4b_gguf.cluster.json
+
+# --- local only: cluster job scripts, notebooks, other people's PDFs, screenshots ---
+slurm/
+notebooks/
+samplepdfs/
+*.pdf
+*.png
+
+# --- app build output ---
+grpo/build/
+grpo/dist/
+*.dmg

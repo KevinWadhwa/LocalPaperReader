@@ -1,38 +1,38 @@
-"""PDF -> QASPER-style Paper with pdfplumber only: no GROBID, no Java, no server (v3).
+"""PDF to a QASPER-style Paper using pdfplumber alone (no GROBID, Java or server). The model was trained on
+QASPER's text, which comes from LaTeX sources, so the parser rebuilds that from the PDF's typography: one
+paragraph per LaTeX paragraph, nested section names, BIBREFn citations, TABREFn / FIGREFn / SECREFn references,
+DISPLAYFORMn equations and captions last. restore() turns the placeholders back into the paper's text for display.
 
-Replaces pdf_parse.py (GROBID). The target is QASPER's own JSON, since that is what the model was trained
-on. QASPER's text is S2ORC's parse of the LaTeX SOURCE, so v3 rebuilds LaTeX structure from the PDF's
-typography. Conventions below were measured on qasper-train-v0.3 (888 papers, 47,687 paragraphs):
-
-  paragraphs  one per LaTeX paragraph. In the PDF a paragraph starts at a first-line indent, after a short
-              last line, after a vertical gap or at a list marker, and runs on across column and page
-              breaks. Run-in heads stay inline ("Data collection. Subreddits are ..."). v2 split only on
-              vertical gaps, which two-column LaTeX almost never has, so it merged most paragraphs.
-  sections    heading text without its number; subsections nest as "Parent ::: Child". All-caps headings
-              are recased ("RELATED WORK" -> "Related Work"), keeping acronyms the body writes in caps.
-  citations   BIBREFn, n in order of first citation (monotone in 77% of QASPER papers), so no bibliography
-              model is needed. Brackets go: "(Kim et al., 2019; Lee, 2018)" -> "BIBREF0, BIBREF1".
-              Narrative author-year drops the names: "Kim et al. (2019) report" -> "BIBREF0 report".
-              Numeric keeps them: "Kim et al. [3]" -> "Kim et al. BIBREF0". The bibliography entry, when
-              one matches, goes in the display map; it is not used to accept or reject a citation.
-  refs        "Table 2" -> "Table TABREFn", likewise FIGREF, SECREF ("Section", "Appendix") and EQREF; n is a
-              shared counter in order of first mention, like QASPER's (arbitrary) label numbers.
-  equations   a displayed equation becomes "DISPLAYFORM0" at the END of the paragraph that introduces it
-              (numbering restarts per paragraph); the "where ..." after it starts a new paragraph.
-  dropped     footnotes and their markers, table and figure contents, running heads, page numbers, front
-              matter (CCS concepts, keywords), and the bibliography. Acknowledgements and appendices stay.
-  captions    last, under "Figures and tables", citations left raw, as in QASPER.
-  characters  ligatures expanded, line-break hyphens rejoined, ’ -> ' in body text (QASPER's body has straight
-              apostrophes; its captions come from the PDF and keep ’).
-
-Not reproduced: inline math (QASPER has $...$ or INLINEFORMn from the LaTeX; a PDF has only glyphs, which
-are kept as extracted).
-
-The display map has pdf_parse.py's format, {placeholder: (original text, raw reference or None)}, so
-restore() here, or the one in pdf_parse.py, turns placeholders back into the paper's text for display.
-
-    PYTHONPATH=. python qasper/pdf_parse_v3.py paper.pdf [--show 8] [--debug]
+    PYTHONPATH=. python qasper/pdf_parse_v3.py paper.pdf [--show 8]
 """
+# Conventions, measured on qasper-train-v0.3 (888 papers, 47,687 paragraphs). QASPER's text is S2ORC's parse of
+# the LaTeX source, so the parser rebuilds LaTeX structure from the PDF's typography:
+#
+#   paragraphs  one per LaTeX paragraph. In the PDF a paragraph starts at a first-line indent, after a short
+#               last line, after a vertical gap or at a list marker, and runs on across column and page
+#               breaks. Run-in heads stay inline ("Data collection. Subreddits are ..."). v2 split only on
+#               vertical gaps, which two-column LaTeX almost never has, so it merged most paragraphs.
+#   sections    heading text without its number; subsections nest as "Parent ::: Child". All-caps headings
+#               are recased ("RELATED WORK" -> "Related Work"), keeping acronyms the body writes in caps.
+#   citations   BIBREFn, n in order of first citation (monotone in 77% of QASPER papers), so no bibliography
+#               model is needed. Brackets go: "(Kim et al., 2019; Lee, 2018)" -> "BIBREF0, BIBREF1".
+#               Narrative author-year drops the names: "Kim et al. (2019) report" -> "BIBREF0 report".
+#               Numeric keeps them: "Kim et al. [3]" -> "Kim et al. BIBREF0". The bibliography entry, when
+#               one matches, goes in the display map; it is not used to accept or reject a citation.
+#   refs        "Table 2" -> "Table TABREFn", likewise FIGREF, SECREF ("Section", "Appendix") and EQREF; n is a
+#               shared counter in order of first mention, like QASPER's (arbitrary) label numbers.
+#   equations   a displayed equation becomes "DISPLAYFORM0" at the END of the paragraph that introduces it
+#               (numbering restarts per paragraph); the "where ..." after it starts a new paragraph.
+#   dropped     footnotes and their markers, table and figure contents, running heads, page numbers, front
+#               matter (CCS concepts, keywords), and the bibliography. Acknowledgements and appendices stay.
+#   captions    last, under "Figures and tables", citations left raw, as in QASPER.
+#   characters  ligatures expanded, line-break hyphens rejoined, ’ -> ' in body text (QASPER's body has straight
+#               apostrophes; its captions come from the PDF and keep ’).
+#
+# Not reproduced: inline math (QASPER has $...$ or INLINEFORMn from the LaTeX; a PDF has only glyphs, which
+# are kept as extracted).
+#
+# The display map is {placeholder: (original text, raw reference or None)}; restore() uses it.
 import argparse
 import re
 import statistics

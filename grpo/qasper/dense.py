@@ -1,3 +1,6 @@
+"""Embedding retrieval over a paper's paragraphs with bge-small: sentence-transformers on the cluster, ONNX in the
+app. Questions get bge's query prefix, and paragraphs are ranked by cosine similarity.
+"""
 import numpy as np
 
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "

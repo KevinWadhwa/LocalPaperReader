@@ -1,3 +1,6 @@
+"""Hybrid retrieval: reciprocal rank fusion of the BM25 (weight 0.3) and embedding (0.7) rankings. The app shows the
+model the top 16 paragraphs. Run as a script to print recall@k on QASPER dev.
+"""
 from collections import defaultdict
 
 from qasper.bm25 import PaperIndex

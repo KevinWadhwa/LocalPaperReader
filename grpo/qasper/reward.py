@@ -1,3 +1,7 @@
+"""The output contract and its checks: parsing the quote and answer tags, the format rules, quote grounding against
+the paper, QASPER's answer F1, and the GRPO reward built from them. The app applies the same checks to decide what
+may be shown.
+"""
 import re
 import string
 from collections import Counter

@@ -1,3 +1,6 @@
+"""QASPER questions as model-ready examples: the retrieved context, the target (answer or abstain), the gold
+paragraphs and the formatted prompt. Used by training, evaluation and the gates.
+"""
 import json
 from collections import Counter
 from dataclasses import dataclass

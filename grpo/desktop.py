@@ -1,11 +1,9 @@
-"""LocalPaperReader in its own window: the entry point of the bundled, double-click app.
+"""The double-click app's entry point. Opens a native window (pywebview, on the system's own web engine) with a
+loading page, downloads the model on first launch (modelfetch), then shows the interface app.py serves on a local
+port. Closing the window quits.
 
-Opens the window at once with a loading page, downloads the model files on first launch (modelfetch), then serves
-the interface app.py builds on a local port and shows it in the window. Closing the window quits. The window uses
-the web engine the system already has (pywebview), so none is shipped.
-
-    PYTHONPATH=. python desktop.py        # from a checkout: no download if the models are in runs/gguf
-    PYTHONPATH=. python desktop.py --browser [--no-browser] [--port N]    # no window: app.py's browser mode
+    PYTHONPATH=. python desktop.py            # from a checkout
+    PYTHONPATH=. python desktop.py --browser  # no window, in the browser
 """
 import base64
 import json

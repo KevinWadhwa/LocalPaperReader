@@ -1,3 +1,6 @@
+"""The system prompt and chat formatting shared by training and the app: quote one to three passages word for word,
+then answer, or give the fixed abstention sentence. Qwen3's thinking mode is switched off.
+"""
 from qasper.reward import ABSTAIN
 
 MAX_PROMPT_TOKENS = 4000

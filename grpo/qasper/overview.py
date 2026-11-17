@@ -1,13 +1,8 @@
-"""Overview mode: a general question ("What are the results?") answered as a few fixed, specific sub-questions.
-
-The trained judge and generator only know specific questions, so a general one is detected by rule, replaced by
-its type's fixed sub-questions, and each sub-question goes through the same judge, generator and quote rules as a
-normal question. The found aspects are shown together, with the missing ones named, so a partial overview never
-reads as complete. Reader.ask is not used or changed: normal questions keep their pipeline exactly.
-
-Measured on 50 dev papers, fp32 (Nov 2026): at least one aspect found for 94% (results), 96% (methodology),
-82% (limitations) and 98% (about) of papers, against 62 / 32 / 28 / 98% for the general question asked directly.
-Section-chosen passages won for results, limitations and about; per-question similarity won for methodology.
+"""Answers the trained judge alone would withhold. General questions ("What are the results?") are detected by rule
+and answered as fixed, specific sub-questions. Definition questions use the paper's own wording ("Defined in
+text"), a lower judge cutoff, or a concept overview. Every answer still passes the same quote rules, and
+Reader.ask is untouched. On 50 dev papers, general questions got an answer for 82-98% of papers, against 28-98%
+asked directly.
 """
 import re
 from collections import defaultdict

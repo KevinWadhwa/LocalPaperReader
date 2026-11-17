@@ -1,9 +1,0 @@
-{
-  "sft_path": "runs/sft_v2_1.7b/merged",
-  "adapter_path": "runs/grpo_v2_1.7b/final",
-  "tiers": {"high": 1e9, "medium": 1e9, "low": -1e9},
-  "tiers_placeholder": true,
-  "k": 16,
-  "dtype": "fp32",
-  "grobid_url": "http://localhost:8070"
-}

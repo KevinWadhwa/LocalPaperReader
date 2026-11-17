@@ -1,3 +1,7 @@
+"""Builds the model's context from the retrieved paragraphs: back in reading order, numbered [P1], [P2]..., each with
+its section name, and captions marked as captions. Also decides a training example's target, answer or abstain,
+from whether the gold evidence was retrieved.
+"""
 from qasper.data import table_only
 from qasper.bm25 import tokenize
 

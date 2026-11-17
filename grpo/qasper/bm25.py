@@ -1,3 +1,6 @@
+"""Keyword retrieval: BM25 over one paper's paragraphs, with a stopword-stripped tokeniser that the quote checks
+also use. recall_at_k measures how often the gold evidence is retrieved.
+"""
 import re
 
 from rank_bm25 import BM25Okapi
