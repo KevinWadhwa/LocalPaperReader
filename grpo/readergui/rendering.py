@@ -24,7 +24,8 @@ WRITING = ("Reasoning out the answer…", "04-teach-it")
 TAGLINE = "Answers by quoting the paper, or says it couldn't find the answer."
 NO_PAPER = "Open a PDF first."
 CONFIDENCE = {"high": "High confidence", "medium": "Medium confidence · check it against the source",
-              "low": "Low confidence · a lead, not an answer"}
+              "low": "Low confidence · a lead, not an answer",
+              "defined": "Defined in text"}
 
 _icon_uses = itertools.count()
 
