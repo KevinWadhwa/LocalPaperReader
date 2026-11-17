@@ -21,8 +21,7 @@
       "bytes": 2497280448,
       "sha256": "8999b8d6412d0923c5f0f2409c4f1fbad7a5d41a17f99bd71a1d02c492e8a002",
       "parts": [
-        {"url": "", "bytes": 1992294400},
-        {"url": "", "bytes": 504986048}
+        {"url": "https://huggingface.co/KevlarSteele/LocalPaperReader-models/resolve/main/verifier-q4km.gguf", "bytes": 2497280448}
       ]
     },
     {
@@ -30,7 +29,7 @@
       "bytes": 132155520,
       "sha256": "a58171fddb0eade62cfc302b4c71ea926239787f8479b520149159df32b5b091",
       "parts": [
-        {"url": "", "bytes": 132155520}
+        {"url": "https://huggingface.co/KevlarSteele/LocalPaperReader-models/resolve/main/grpo-step80-lora-f32.gguf", "bytes": 132155520}
       ]
     }
   ],
