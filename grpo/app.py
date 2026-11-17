@@ -140,9 +140,17 @@ def build_demo(cfg, debug=False):
                     elif x is None or value["found"]:                    # a fallback that finds nothing isn't shown
                         result = value
                 steps = None
-                if not kind and x is None and result["status"] != "answer":  # withheld "What is X?": concept fallback
-                    x = overview.concept_for(reader, question)
-                    steps = x and overview_stages(reader, question, "concept", x)
+                weak = result["status"] != "answer" or result.get("confidence") == "low"
+                if not kind and x is None and weak:                  # the paper's own definition beats a weak answer
+                    defined = overview.abbreviation(reader, question) or overview.description(reader, question)
+                    if not defined and result["status"] != "answer":
+                        with reader.busy:                            # definition_answer runs the model
+                            defined = overview.definition_answer(reader, question, result)
+                    if defined:
+                        result = defined
+                    elif result["status"] != "answer":               # still withheld: concept fallback
+                        x = overview.concept_for(reader, question)
+                        steps = x and overview_stages(reader, question, "concept", x)
         except Exception as e:                                           # one message for every failure
             result = {"status": "abstain", "debug": {"reason": f"error: {type(e).__name__}: {e}"}}
         debug = json.loads(json.dumps(result["debug"]))                  # gr.JSON needs str keys (p_to_idx)

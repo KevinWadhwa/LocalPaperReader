@@ -141,7 +141,9 @@ over under""".split())
 GENERIC = set("""baseline baselines dataset datasets data model models method methods task tasks metric metrics result
 results approach approaches corpus corpora feature features experiment experiments annotator annotators crowdworkers
 system systems benchmark benchmarks setting settings language languages""".split())   # want a list, not a definition
-CONCEPT_MIN_SHARE = 0.10                                             # X in at least this share of paragraphs
+NOT_A_TERM = set("""best existing previous other reported specifically specific main proposed different various
+keyword keywords""".split())                                         # "the best reported system" asks for a list
+CONCEPT_MIN_SHARE = 0.10                                            # X in at least this share of paragraphs
 CONCEPT_FALLBACK = True                                              # False: never try the fallback
 
 
@@ -152,8 +154,9 @@ def concept_term(question):
         m = re.match(p, q, re.I)
         if m:
             x = m.group("x").strip(" ?.")
-            words = x.lower().split()
-            if 1 <= len(words) <= 4 and not set(words) & CONCEPT_BAD and x.lower() not in GENERIC:
+            words = re.split(r"[\s\-]+", x.lower())
+            if (1 <= len(words) <= 4 and not set(words) & CONCEPT_BAD and not re.search(r"\d", x)
+                    and not any(w in GENERIC or w.rstrip("s") in GENERIC or w in NOT_A_TERM for w in words)):
                 return x
             return None
     return None
@@ -214,22 +217,28 @@ def passage_sets(reader, kind, x=None):
     return [chosen] * len(questions)
 
 
+CITE_YEAR_RE = re.compile(r"\bet al\.?,?\s*(?:19|20)\d\d[a-z]?\b|\(\s*(?:19|20)\d\d[a-z]?\s*\)")
+
+
 def numbers_ok(answer, quotes):
-    """Every number in the answer appears in its quotes (True when the answer has none)."""
+    """Every number in the answer appears in its quotes (True when the answer has none). Citation years are ignored."""
+    answer = CITE_YEAR_RE.sub(" ", answer)
     text = " ".join(q for _, q in quotes).replace(",", "")
     return all(re.search(r"(?<![\d.])" + re.escape(n) + r"(?![\d])", text)
                for n in {m.replace(",", "") for m in NUM_RE.findall(answer)})
 
 
-def answer_one(reader, question, context, p_to_idx, reuse=False):
+def answer_one(reader, question, context, p_to_idx, reuse=False, lp=None, low=None):
     """One sub-question through the judge, the generator and the reader's rules, plus the number check.
     KEEP IN STEP with Reader._ask: the same rule sequence, copied so the normal pipeline stays untouched.
-    reuse: the GGUF judge keeps the passages read for the previous sub-question (same passages, new question)."""
+    reuse: the GGUF judge keeps the passages read for the previous sub-question (same passages, new question).
+    lp: a judge score already computed for this prompt. low: a lower cutoff, shown as "low"."""
     paper = reader.paper
     prompt = format_prompt(reader.tok, context, question)
-    lp = reader.gguf.abstain_score_reuse(prompt) if reuse else reader.abstain_score(prompt)
+    if lp is None:
+        lp = reader.gguf.abstain_score_reuse(prompt) if reuse else reader.abstain_score(prompt)
     score = -lp
-    confidence = reader.confidence(score)
+    confidence = reader.confidence(score) or ("low" if low is not None and score >= low else None)
     debug = {"question": question, "reason": None, "abstain_score": lp, "verifier_score": score, "outcome": None,
              "confidence": None, "raw_output": None, "repaired": None}
 
@@ -270,6 +279,132 @@ def answer_one(reader, question, context, p_to_idx, reuse=False):
             "quotes": shown, "references": refs, "debug": debug}
 
 
+# ---- abbreviation fallback: "What is RAG?" withheld -> the paper's own spelled-out form, checked by rule
+ABBREV_FALLBACK = True                                               # False: never try it
+ABBREV_PATTERNS = CONCEPT_PATTERNS + [rf"^what does {_A}(?P<x>.+?) stand for\??$",
+                                      rf"^what is {_A}(?P<x>.+?) short for\??$"]
+SKIP_WORDS = {"of", "the", "and", "for", "in", "on", "to", "a", "an", "with", "by"}
+
+
+def abbrev_term(question):
+    """X when the question asks what an abbreviation X is (2+ capitals, one token), else None."""
+    q = " ".join(question.strip().split())
+    for p in ABBREV_PATTERNS:
+        m = re.match(p, q, re.I)
+        if m:
+            x = m.group("x").strip(" ?.")
+            ok = re.fullmatch(r"[A-Za-z][A-Za-z0-9\-]{1,11}", x) and sum(c.isupper() for c in x) >= 2
+            return x if ok else None
+    return None
+
+
+def _expansion_before(text, letters):
+    """The words ending `text` whose initials spell `letters` ("AC Optimal Power Flow" for A,C,O,P,F), else None."""
+    words = list(re.finditer(r"[A-Za-z][A-Za-z0-9']*", text))
+    i, j, start = len(letters) - 1, len(words) - 1, None
+    if not words or text[words[-1].end():].strip():
+        return None
+    while i >= 0 and j >= 0:
+        w = words[j].group()
+        caps = [c.lower() for c in w] if w.isupper() and len(w) >= 2 else None
+        if caps and caps == letters[i - len(caps) + 1:i + 1]:
+            i -= len(caps)
+        elif w[0].lower() == letters[i]:
+            i -= 1
+        elif w.lower() not in SKIP_WORDS:
+            return None
+        start = words[j].start()
+        j -= 1
+    return text[start:].strip() if i < 0 else None
+
+
+def abbreviation(reader, question):
+    """A shown answer spelling out the abbreviation as the paper does, with its defining sentences as quotes;
+    None if the question isn't one, the switch is off, or the paper never spells it out."""
+    x = abbrev_term(question) if ABBREV_FALLBACK else None
+    if not x:
+        return None
+    paper, letters = reader.paper, [c.lower() for c in x if c.isupper()]
+    found = None
+    for i, p in enumerate(paper.paragraphs):
+        text = norm_ws(p)
+        for m in re.finditer(r"\(\s*" + re.escape(x) + r"\s*[,;)]", text):
+            sent_start = max(text.rfind(". ", 0, m.start()) + 2, 0) if text.rfind(". ", 0, m.start()) >= 0 else 0
+            exp = _expansion_before(text[sent_start:m.start()], letters)
+            if exp:
+                found = (i, exp)
+                break
+        if found:
+            break
+    described = paper_description(paper, x)
+    if found:
+        i, exp = found
+        quotes = [(i, next(s for s in _sentences(norm_ws(paper.paragraphs[i])) if exp in s))]
+        if described and described[2] != quotes[0][1]:
+            quotes.append((described[0], described[2]))
+    elif described:                                                  # never spelled out: the paper's description
+        exp, quotes = described[1], [(described[0], described[2])]
+    else:
+        return None
+    return _defined(reader, question, exp, quotes, {"abbreviation": x, "reason": "spelled out in the paper"})
+
+
+_sentences = lambda t: re.split(r"(?<=[.!?])\s+", t)
+DESCRIBING_VERBS = set("""is are refers controls attenuates addresses involves denotes means describes consists measures
+computes maps scales rescales normalises normalizes represents combines converts encodes assigns estimates captures
+quantifies transforms defines determines compresses aims seeks extends generalises generalizes""".split())
+
+
+def paper_description(paper, x):
+    """(paragraph, clause, sentence) for the first sentence or "while / whereas / ;" clause, in reading order, where X
+    (or "<word> X") is the subject of a describing verb ("Residual rebalancing controls ..."). Else None."""
+    head = re.compile(rf"^(?:the )?(?:[\w\-]+ )?{re.escape(x)}(?:\s*\([^)]*\))?(?:\s+BIBREF\d+)?\s+(?P<v>[a-z]+)\b"
+                      rf"(?!\s+(?:used|applied)\b)", re.I)          # "X is applied ..." says nothing about X
+    for j, p in enumerate(paper.paragraphs):
+        if paper.sections[j] == "Figures and tables" or not english(p):
+            continue
+        for s in _sentences(norm_ws(p)):
+            for clause in re.split(r",? (?:while|whereas) |; ", s):
+                m = head.match(clause)
+                if m and m.group("v").lower() in DESCRIBING_VERBS:
+                    return j, clause.rstrip(".") + ".", s
+    return None
+
+
+def description(reader, question):
+    """A "defined in text" answer from the paper's own description of the term of a definition-style question."""
+    x = concept_term(question) if ABBREV_FALLBACK else None
+    d = paper_description(reader.paper, x) if x else None
+    if not d:
+        return None
+    return _defined(reader, question, d[1], [(d[0], d[2])], {"term": x, "reason": "described in the paper"})
+
+
+def _defined(reader, question, answer, quotes, debug):
+    paper = reader.paper
+    shown = [reader._quote(n, q, paper.sections[j], norm_ws(paper.paragraphs[j])) for n, (j, q) in enumerate(quotes, 1)]
+    cited = dict.fromkeys(BIBREF_RE.findall(" ".join([answer] + [q for _, q in quotes])))
+    refs = [{"placeholder": ph, "cited_as": reader.display[ph][0], "reference": reader.display[ph][1]}
+            for ph in cited if ph in reader.display]
+    return {"status": "answer", "confidence": "defined", "answer": reader._restore(answer), "quotes": shown,
+            "references": refs, "debug": {"question": question, **debug}}
+
+
+DEFINITION_LOW = 0.8      # definition questions are shown from this judge score (40-item definition set, 2026-11-17)
+
+
+def definition_answer(reader, question, result):
+    """For a "What is X?" answer the judge withheld with a score >= DEFINITION_LOW: the answer, shown as low."""
+    d, x = result["debug"], concept_term(question)
+    if (result["status"] == "answer" or d.get("reason") != "verifier" or not x or re.search(r"\d", x)
+            or d.get("verifier_score", -99) < DEFINITION_LOW):
+        return None
+    ranked = reader.retriever.top_k(reader.paper.paper_id, question, reader.k)     # Reader._ask's passages
+    context, p_to_idx = build_context(reader.paper, ranked, reader.k)
+    r = answer_one(reader, question, context, p_to_idx, lp=d["abstain_score"], low=DEFINITION_LOW)
+    return r if r["status"] == "answer" else None
+
+
 def answer(reader, question):
     """The app's entry point: overview for a general question, else Reader.ask, with the concept fallback if that
     is withheld."""
@@ -277,8 +412,16 @@ def answer(reader, question):
     if kind:
         return run(reader, question, kind)
     result = reader.ask(question)
+    if result["status"] == "answer" and result.get("confidence") != "low":
+        return result
+    defined = abbreviation(reader, question) or description(reader, question)   # beats a low or withheld answer
+    if defined:
+        return defined
     if result["status"] == "answer":
         return result
+    defined = definition_answer(reader, question, result)
+    if defined:
+        return defined
     x = concept_for(reader, question)
     if not x:
         return result
