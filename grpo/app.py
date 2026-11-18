@@ -17,8 +17,8 @@ from paperfetch import download
 from qasper import overview
 from qasper.pdf_parse_v3 import parse_pdf
 from readergui import styling
-from readergui.rendering import (ASSESSING, DOWNLOADING, INDEXING, NO_PAPER, PARSING, WRITING, header, looking_in,
-                                 oval, render, stage, start)
+from readergui.rendering import (ASSESSING, DOWNLOADING, INDEXING, NO_PAPER, PARSING, SHELF, SHELF_JS, WRITING, header,
+                                 looking_in, oval, render, stage, start)
 from readergui.stages import StagedReader, ask_stages, overview_stages
 
 CAPTION = "Figures and tables"
@@ -94,7 +94,7 @@ def build_demo(cfg, debug=False):
 
     papers = os.path.join(data_dir(), "papers")
 
-    def open_paper(path):
+    def open_paper(path, move=False):
         """Parse, keep and index the PDF at `path`, with the stages in the top bar."""
         yield None, header(stage=PARSING), gr.update(value=[], placeholder=start())
         try:
@@ -103,7 +103,7 @@ def build_demo(cfg, debug=False):
             yield None, header(summary=f"Couldn't parse the PDF: {e}"), gr.update()
             return
         try:
-            paperstore.keep(path, paper.title, papers)
+            paperstore.keep(path, paper.title, papers, move)
         except OSError as e:                                             # not kept: it still opens
             print(f"paper not kept: {e}")
         yield None, header(stage=INDEXING), gr.update()
@@ -127,11 +127,32 @@ def build_demo(cfg, debug=False):
             return
         yield None, header(stage=DOWNLOADING), gr.update(value=[], placeholder=start())
         try:
-            path = download(link)
+            path = download(link, os.path.join(papers, paperstore.INCOMING))
         except RuntimeError as e:
             yield None, header(summary=f"Couldn't download the paper: {e}"), gr.update()
             return
+        try:
+            yield from open_paper(path, move=True)
+        finally:
+            if os.path.exists(path):                                     # not kept: it couldn't be read
+                os.remove(path)
+
+    def rename_paper(file, name):
+        return paperstore.rename(papers, file, name)
+
+    def delete_paper(file):
+        return paperstore.delete(papers, file)
+
+    def reopen(evt: gr.EventData):
+        path = os.path.join(papers, os.path.basename(evt.file))
+        if not os.path.isfile(path):
+            yield None, header(summary="That paper is no longer in the folder."), gr.update()
+            return
         yield from open_paper(path)
+
+    def shelf_click(shown):                                              # the card closes when the list opens
+        update = gr.update(visible=False) if shown else gr.update(visible=True, value=paperstore.listing(papers))
+        return not shown, update, False, gr.update(visible=False)
 
     def ask(question, history, state):
         question = (question or "").strip()
@@ -187,12 +208,16 @@ def build_demo(cfg, debug=False):
     with gr.Blocks(title="LocalPaperReader", fill_width=True, fill_height=True) as demo:
         state = gr.State(None)
         card_open = gr.State(False)
+        shelf_open = gr.State(False)
         with gr.Row(elem_id="lpr-bar"):                                  # the ids are styled in readergui/styling.py
             open_pdf = gr.Button("Open PDF", elem_id="lpr-open", scale=0)
             head = gr.HTML(header(), elem_id="lpr-head")
+            recent = gr.Button("Previously opened", elem_id="lpr-recent", scale=0)
         with gr.Column(visible=False, elem_id="lpr-card") as card:       # Open PDF's card
             link = gr.Textbox(show_label=False, container=False, placeholder="Paste link", max_lines=1, elem_id="lpr-link")
             pdf = gr.UploadButton("From device", file_types=[".pdf"], type="filepath", elem_id="lpr-device", scale=0)
+        shelf = gr.HTML([], visible=False, elem_id="lpr-shelf", html_template=SHELF, js_on_load=SHELF_JS,
+                        server_functions=[rename_paper, delete_paper])                # Previously opened's list
         chat = gr.Chatbot(elem_id="lpr-chat", show_label=False, container=False, scale=1, layout="bubble",
                           placeholder=start(), buttons=[], latex_delimiters=[], **chat_kwargs)
         question = gr.Textbox(elem_id="lpr-ask", show_label=False, container=False, placeholder="Ask a question!",
@@ -203,7 +228,11 @@ def build_demo(cfg, debug=False):
             show_debug.change(lambda on: gr.update(visible=on), show_debug, debug_json)
 
         close = lambda: (False, gr.update(visible=False))
-        open_pdf.click(lambda o: (not o, gr.update(visible=not o)), card_open, [card_open, card])
+        open_pdf.click(lambda o: (not o, gr.update(visible=not o), False, gr.update(visible=False)), card_open,
+                       [card_open, card, shelf_open, shelf])
+        recent.click(shelf_click, shelf_open, [shelf_open, shelf, card_open, card])
+        shelf.double_click(lambda: (False, gr.update(visible=False)), None, [shelf_open, shelf])
+        shelf.double_click(reopen, None, [state, head, chat], show_progress="hidden")
         pdf.upload(close, None, [card_open, card])
         link.submit(close, None, [card_open, card])
         pdf.upload(upload, pdf, [state, head, chat], show_progress="hidden")         # the stages are the progress

@@ -3,7 +3,6 @@ its PDF in a citation_pdf_url tag (most journals and open-access sites)."""
 import html
 import os
 import re
-import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -39,9 +38,9 @@ def pdf_url(link):
     return link, urllib.parse.unquote(os.path.basename(u.path)).removesuffix(".pdf") or host
 
 
-def download(link):
-    """Download the paper at `link` to a temporary file and return its path. Raises RuntimeError with a message
-    for the user."""
+def download(link, folder):
+    """Download the paper at `link` into `folder`, where it waits to be kept, and return its path. Raises
+    RuntimeError with a message for the user."""
     url, name = pdf_url(link)
     for _ in range(2):                                                   # a page, then the PDF it names
         host = urllib.parse.urlparse(url).netloc
@@ -56,7 +55,8 @@ def download(link):
         if len(data) > LIMIT:
             raise RuntimeError("the file is over 50 MB.")
         if data.startswith(b"%PDF-"):
-            path = os.path.join(tempfile.mkdtemp(), clean(name) + ".pdf")
+            os.makedirs(folder, exist_ok=True)
+            path = os.path.join(folder, clean(name) + ".pdf")
             with open(path, "wb") as f:
                 f.write(data)
             return path
