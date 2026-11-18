@@ -35,7 +35,7 @@ you can check it yourself in a second.
    xattr -dr com.apple.quarantine /Applications/LocalPaperReader.app
    ```
 4. On first launch it downloads the model (about 2.6 GB, once). After that it works fully offline.
-5. Drop in a PDF, wait a moment while it reads the paper, and ask away. Try specific questions ("Which datasets did
+5. Drop in a PDF or its link, wait a moment while it reads the paper, and ask away. Try specific questions ("Which datasets did
    they use?") or general ones ("What are the main results?", "What are the limitations?").
 
 You'll need an Apple Silicon Mac (M1 or newer) and about 3 GB of free disk space. A Windows version is coming soon.

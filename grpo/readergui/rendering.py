@@ -17,6 +17,7 @@ BOOK = "01-flip-through"                            # also the app's own icon, s
 
 # stage -> (message, icon file name without .svg; "-dark" is added for dark mode)
 PARSING = ("Parsing the PDF…", BOOK)
+DOWNLOADING = ("Downloading the paper…", BOOK)
 INDEXING = ("Reading and indexing the paper…", BOOK)
 ASSESSING = ("Retrieved the most relevant passages. Assessing whether they answer your question…", "02-03-alternate")
 WRITING = ("Reasoning out the answer…", "04-teach-it")

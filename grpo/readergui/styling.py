@@ -117,6 +117,17 @@ CSS = FONTS + f"""
 .lpr-head-stage {{ display: flex; align-items: center; gap: 14px; color: var(--lpr-muted); }}
 .lpr-top-slot {{ transform: translateX(-{(OPEN_BUTTON + 16) // 2}px); }}
 
+/* Open PDF's card: the link box looks like the question box, From device like Open PDF */
+#lpr-card {{ position: absolute; top: {TOP_ICON + 20}px; left: 24px; z-index: 20; flex: none; width: 300px; min-width: 0;
+            gap: 10px; padding: 14px; border: 1px solid var(--lpr-line); border-radius: 10px; background: var(--lpr-page); }}
+#lpr-link input, #lpr-link textarea {{ min-height: 44px; padding: 10px 20px !important; border: 1.5px solid var(--lpr-box-line) !important;
+            border-radius: 28px !important; background: var(--lpr-box) !important; box-shadow: none !important;
+            color: var(--lpr-text); font-family: {QUESTION_FONT}; font-size: {TEXT_SIZE}px; }}
+#lpr-link input::placeholder, #lpr-link textarea::placeholder {{ color: var(--lpr-placeholder); opacity: 1; }}
+#lpr-device {{ flex: none; align-self: flex-start; width: auto; min-width: 0; min-height: 32px; padding: 0 12px;
+              border: 1px solid var(--lpr-button); border-radius: 10px; background: transparent; box-shadow: none;
+              color: var(--lpr-button); font-size: {SMALL_SIZE}px; font-weight: 500; }}
+
 /* conversation */
 #lpr-chat {{ border: 0 !important; background: transparent !important; box-shadow: none !important; min-height: 300px; }}
 #lpr-chat .bubble-wrap {{ background: transparent !important; }}
