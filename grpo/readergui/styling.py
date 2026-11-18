@@ -128,6 +128,25 @@ CSS = FONTS + f"""
               border: 1px solid var(--lpr-button); border-radius: 10px; background: transparent; box-shadow: none;
               color: var(--lpr-button); font-size: {SMALL_SIZE}px; font-weight: 500; }}
 
+/* Previously opened: the button looks like Open PDF, its list like Open PDF's card */
+#lpr-bar {{ position: relative; }}
+#lpr-recent {{ position: absolute; right: 24px; top: 50%; transform: translateY(-50%); flex: none; width: auto; min-width: 0;
+              min-height: 44px; padding: 0 12px; border: 1px solid var(--lpr-button); border-radius: 10px;
+              background: transparent; box-shadow: none; color: var(--lpr-button); font-size: 15px; font-weight: 500; }}
+#lpr-shelf {{ position: absolute; top: {TOP_ICON + 20}px; right: 24px; z-index: 20; width: 340px; max-height: 360px;
+             overflow-y: auto; padding: 6px; border: 1px solid var(--lpr-line); border-radius: 10px; background: var(--lpr-page); }}
+.lpr-paper {{ display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; color: var(--lpr-text);
+             font-size: 14px; cursor: default; }}
+.lpr-paper:hover {{ background: var(--lpr-oval); }}
+.lpr-name {{ flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; outline: none; }}
+.lpr-name[contenteditable="true"] {{ white-space: normal; border-radius: 4px; background: var(--lpr-box);
+                                     box-shadow: 0 0 0 1.5px var(--lpr-box-line); }}
+.lpr-del {{ visibility: hidden; flex: none; padding: 2px 8px; border: 1px solid var(--lpr-line); border-radius: 6px;
+           background: transparent; color: var(--lpr-muted); font-size: {SMALL_SIZE}px; cursor: pointer; }}
+.lpr-paper:hover .lpr-del {{ visibility: visible; }}
+.lpr-del.lpr-sure {{ visibility: visible; border-color: {DOT["low"]}; color: {DOT["low"]}; }}
+.lpr-empty {{ padding: 10px; color: var(--lpr-muted); font-size: 14px; }}
+
 /* conversation */
 #lpr-chat {{ border: 0 !important; background: transparent !important; box-shadow: none !important; min-height: 300px; }}
 #lpr-chat .bubble-wrap {{ background: transparent !important; }}
