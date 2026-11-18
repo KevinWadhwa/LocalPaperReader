@@ -376,7 +376,7 @@ def _recase(name, acronyms):
 
 # -------------------------------------------------------------------------------------------- citations
 
-_PARTICLE = r"(?:(?:van|von|der|den|de|del|della|di|da|dos|du|la|le|ten|ter|al|el|bin|y)\s+)*"
+_PARTICLE = r"(?:\b(?:van|von|der|den|de|del|della|di|da|dos|du|la|le|ten|ter|al|el|bin|y)\s+)*"
 _NAME1 = _PARTICLE + r"[A-ZÀ-ÖØ-ÞĀ-ſ][\w'’\-]*"
 _AUTH = rf"{_NAME1}(?:(?:,\s*{_NAME1})*,?\s+(?:and|&)\s+{_NAME1})?(?:,?\s+et\s+al\.?)?"
 _YEAR = r"(?:19|20)\d{2}[a-z]?"
