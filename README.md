@@ -25,7 +25,7 @@ you can check it yourself in a second.
 
 ## Getting started
 
-1. Download LocalPaperReader.dmg from the [latest release](https://github.com/ada-kw1525/LocalPaperReader/releases/latest).
+1. Download LocalPaperReader.dmg from the [latest release](https://github.com/KevinWadhwa/LocalPaperReader/releases/latest).
 2. Open it and drag LocalPaperReader into Applications.
 3. The first time you open it, macOS will say it "could not verify LocalPaperReader is free of malware". That's
    only because the app isn't signed with a paid Apple developer account yet. Click Done, then go to System
@@ -40,7 +40,7 @@ you can check it yourself in a second.
 
 You'll need an Apple Silicon Mac (M1 or newer) and about 3 GB of free disk space. A Windows version is coming soon.
 
-Something not working, or got an idea? [Open an issue](https://github.com/ada-kw1525/LocalPaperReader/issues) or
+Something not working, or got an idea? [Open an issue](https://github.com/KevinWadhwa/LocalPaperReader/issues) or
 email me at [your-email-here]. I'd genuinely love to hear how it goes.
 
 ## What's going on inside
