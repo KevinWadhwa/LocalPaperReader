@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+<!-- The app icon: the open book from 01-flip-through.svg, still (no page flip), on a macOS-style rounded plate.
+     Converted to LocalPaperReader.icns on a Mac (see bundlebuild/LocalPaperReader.spec). -->
+<rect x="100" y="100" width="824" height="824" rx="185" fill="#FFFDF8" stroke="#E6DFD2" stroke-width="6"/>
+<g transform="translate(182 138) scale(5.5)" stroke-linecap="round" stroke-linejoin="round">
+<path d="M10 42 L10 96 Q36 90 60 98 Q84 90 110 96 L110 42" fill="none" stroke="#22252B" stroke-width="3"/>
+<path d="M86 92 L86 108 L90 104 L94 108 L94 91" fill="none" stroke="#E0603A" stroke-width="3"/>
+<path d="M60 38 Q38 28 16 34 L16 90 Q38 84 60 94 Z" fill="#FFFDF8" stroke="#22252B" stroke-width="3"/>
+<path d="M60 38 Q82 28 104 34 L104 90 Q82 84 60 94 Z" fill="#FFFDF8" stroke="#22252B" stroke-width="3"/>
+<g fill="none" stroke="#22252B" stroke-width="1.8" opacity=".5">
+<path d="M24 46 Q38 43 52 47"/><path d="M24 54 Q38 51 52 55"/><path d="M24 62 Q38 59 52 63"/><path d="M24 70 Q38 67 52 71"/><path d="M34 78 Q38 75 52 79"/>
+<path d="M68 47 Q82 43 96 46"/><path d="M68 55 Q82 51 96 54"/><path d="M68 63 Q82 59 96 62"/><path d="M68 71 Q82 67 96 70"/><path d="M68 79 Q82 75 86 78"/>
+</g>
+<path d="M60 38 L60 94" fill="none" stroke="#22252B" stroke-width="3"/>
+</g>
+</svg>

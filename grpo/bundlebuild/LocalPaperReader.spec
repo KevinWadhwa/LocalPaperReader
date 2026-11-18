@@ -49,5 +49,7 @@ pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="LocalPaperReader", console=False, upx=False)
 coll = COLLECT(exe, a.binaries, a.datas, name="LocalPaperReader", upx=False)
 if sys.platform == "darwin":
+    # icons/LocalPaperReader.icns is made on a Mac from icons/app-icon.svg (rsvg-convert, sips, iconutil)
     app = BUNDLE(coll, name="LocalPaperReader.app", bundle_identifier="org.localpaperreader.app",
+                 icon=os.path.join(ROOT, "icons", "LocalPaperReader.icns"),
                  info_plist={"NSHighResolutionCapable": True})

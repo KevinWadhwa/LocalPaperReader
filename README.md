@@ -27,8 +27,10 @@ you can check it yourself in a second.
 
 1. Download LocalPaperReader.dmg from the [latest release](https://github.com/ada-kw1525/LocalPaperReader/releases/latest).
 2. Open it and drag LocalPaperReader into Applications.
-3. The first time you open it, right-click the app and choose Open (the app isn't signed with an Apple developer
-   account yet, so macOS asks once). If macOS still won't open it, run this in Terminal:
+3. The first time you open it, macOS will say it "could not verify LocalPaperReader is free of malware". That's
+   only because the app isn't signed with a paid Apple developer account yet. Click Done, then go to System
+   Settings → Privacy & Security, scroll to the bottom and click Open Anyway next to LocalPaperReader. You only need
+   to do this once. Or, if you prefer Terminal, run this and then open the app as normal:
    ```
    xattr -dr com.apple.quarantine /Applications/LocalPaperReader.app
    ```
