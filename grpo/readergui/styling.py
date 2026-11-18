@@ -31,7 +31,7 @@ BOX_LINE = ("#1E3176", "#3952AC")
 PLACEHOLDER = ("#6B6F76", "#A6A8AD")                # "Ask a question!"
 SEND_FILL = ("#2F6B4A", "#3A7F59")                  # the send button
 SEND_ARROW = ("#FFFFFF", "#FFFFFF")
-DOT = {"high": "#2F8F5B", "medium": "#E3A912", "low": "#E0603A"}    # confidence dots, both modes; "defined" = SOURCE_FILL
+DOT = {"high": "#2F8F5B", "medium": "#E3A912", "low": "#E0603A"}    # confidence dots, both modes; "defined" and "seen" = SOURCE_FILL
 
 # ---- fonts (Manrope and Nunito Sans ship in fonts/; the others are the system's)
 UI_FONT = "-apple-system, 'Segoe UI', system-ui, sans-serif"
@@ -139,7 +139,7 @@ CSS = FONTS + f"""
 .lpr-dot.lpr-high {{ background: {DOT["high"]}; }}
 .lpr-dot.lpr-medium {{ background: {DOT["medium"]}; }}
 .lpr-dot.lpr-low {{ background: {DOT["low"]}; }}
-.lpr-dot.lpr-defined {{ background: var(--lpr-source); }}
+.lpr-dot.lpr-defined, .lpr-dot.lpr-seen {{ background: var(--lpr-source); }}
 .lpr-part {{ font-weight: 600; color: var(--lpr-text); }}
 .lpr-hex {{ display: inline-flex; align-items: stretch; max-width: 100%; }}
 .lpr-cap {{ flex: 0 0 {HEX_CAP}px; width: {HEX_CAP}px; min-width: {HEX_CAP}px; background: var(--lpr-answer);

@@ -1,6 +1,7 @@
 """Answers the trained judge alone would withhold. General questions ("What are the results?") are detected by rule
 and answered as fixed, specific sub-questions. Definition questions use the paper's own wording ("Defined in
-text"), a lower judge cutoff, or a concept overview. Every answer still passes the same quote rules, and
+text"), a lower judge cutoff, or a concept overview. Origin questions get the paper's own citation for the term
+("Seen in text"), never the model's guess. Every answer still passes the same quote rules, and
 Reader.ask is untouched. On 50 dev papers, general questions got an answer for 82-98% of papers, against 28-98%
 asked directly.
 """
@@ -128,8 +129,7 @@ _A = r"(?:an? |the )?"
 CONCEPT_PATTERNS = [rf"^(?:what|who) (?:is|are|was|were) {_A}(?P<x>.+?)\??$", rf"^what'?s {_A}(?P<x>.+?)\??$",
                     rf"^(?:define|explain|describe) {_A}(?P<x>.+?)\.?$", rf"^what does {_A}(?P<x>.+?) mean\??$",
                     rf"^what is meant by {_A}(?P<x>.+?)\??$", rf"^how does {_A}(?P<x>.+?) work\??$",
-                    rf"^where does {_A}(?P<x>.+?) come from\??$",
-                    rf"^what (?:is|are) the (?:origin|definition|meaning)s? of {_A}(?P<x>.+?)\??$"]
+                    rf"^what (?:is|are) the (?:definition|meaning)s? of {_A}(?P<x>.+?)\??$"]
 CONCEPT_BAD = set("""of in for on with by to from their they them this these those that used using between and or do does
 did is are was were be been what which who how why when where whose its it his her our we you your than as at into about
 over under""".split())
@@ -142,15 +142,15 @@ CONCEPT_MIN_SHARE = 0.10                                            # X in at le
 CONCEPT_FALLBACK = True                                              # False: never try the fallback
 
 
-def concept_term(question):
-    """The term X of a definition-style question, else None."""
+def concept_term(question, patterns=CONCEPT_PATTERNS, digits=False):
+    """The term X of a definition-style question (or one matching `patterns`), else None."""
     q = " ".join(question.strip().split())
-    for p in CONCEPT_PATTERNS:
+    for p in patterns:
         m = re.match(p, q, re.I)
         if m:
             x = m.group("x").strip(" ?.")
             words = re.split(r"[\s\-]+", x.lower())
-            if (1 <= len(words) <= 4 and not set(words) & CONCEPT_BAD and not re.search(r"\d", x)
+            if (1 <= len(words) <= 4 and not set(words) & CONCEPT_BAD and (digits or not re.search(r"\d", x))
                     and not any(w in GENERIC or w.rstrip("s") in GENERIC or w in NOT_A_TERM for w in words)):
                 return x
             return None
@@ -375,13 +375,13 @@ def description(reader, question):
     return _defined(reader, question, d[1], [(d[0], d[2])], {"term": x, "reason": "described in the paper"})
 
 
-def _defined(reader, question, answer, quotes, debug):
+def _defined(reader, question, answer, quotes, debug, confidence="defined"):
     paper = reader.paper
     shown = [reader._quote(n, q, paper.sections[j], norm_ws(paper.paragraphs[j])) for n, (j, q) in enumerate(quotes, 1)]
     cited = dict.fromkeys(BIBREF_RE.findall(" ".join([answer] + [q for _, q in quotes])))
     refs = [{"placeholder": ph, "cited_as": reader.display[ph][0], "reference": reader.display[ph][1]}
             for ph in cited if ph in reader.display]
-    return {"status": "answer", "confidence": "defined", "answer": reader._restore(answer), "quotes": shown,
+    return {"status": "answer", "confidence": confidence, "answer": reader._restore(answer), "quotes": shown,
             "references": refs, "debug": {"question": question, **debug}}
 
 
@@ -400,12 +400,69 @@ def definition_answer(reader, question, result):
     return r if r["status"] == "answer" else None
 
 
+# Origin questions get only the citation the paper attaches to X, since the model invents sources.
+ORIGIN_PATTERNS = [rf"^where (?:does|did|do) {_A}(?P<x>.+?) (?:come from|originate(?: from)?)\??$",
+                   rf"^what (?:is|was|are) the origins? of {_A}(?P<x>.+?)\??$",
+                   rf"^who (?:first )?(?:proposed|introduced|invented|developed) {_A}(?P<x>.+?)\??$",
+                   rf"^where (?:was|were|is) {_A}(?P<x>.+?) (?:first )?(?:proposed|introduced)\??$"]
+_HEAD_NOUN = (r"(?:model|models|system|systems|framework|method|algorithm|architecture|dataset|corpus|metric|toolkit"
+              r"|network|networks|work|tagger|parser|embeddings|score)")
+_PHRASE_END = (r"(?=\s*(?:[,.;:()—–]|$|\s(?:and|which|that|for|to|as|in|on|with|model|models|framework|method|approach"
+               r"|architecture|system|dataset|corpus|metric)\b))")
+_CLAIM = set("""show showed shown use used find found report reported combine combined propose proposed demonstrate
+demonstrated suggest suggested observe observed achieve achieved apply applied employ employed train trained introduce
+introduced present presented argue argued note noted""".split())     # "BIBREF3 show ...": the citation starts a claim
+_WE, _INTRO = r"\b(?:we|this (?:paper|work|thesis))", r"(?:propose|introduce|present)[sd]?"
+origin_term = lambda question: concept_term(question, ORIGIN_PATTERNS, digits=True)
+
+
+def cited_origin(paper, x):
+    """(paragraph, "BIBREFn" or "this paper", sentence) where the paper gives X's source, in reading order, else None."""
+    xl = x.lower()
+    forms = {xl, xl + "s"} | ({xl[:-3] + e for e in ("e", "es", "ed")} if xl.endswith("ing") and len(xl) > 5 else set())
+    X = r"(?<![\w\-])(?:" + "|".join(map(re.escape, sorted(forms, key=len, reverse=True))) + r")(?![\w\-])"
+    ours = [rf"{_WE}\s+{_INTRO}\s+(?!to\b)(?:(?:a|an|the)\s+)?(?:(?:new|novel)\s+)?(?:[\w\-]+\s+and\s+)?{X}{_PHRASE_END}",
+            rf"{_WE}\b[^.]{{0,15}}\b(?:propose|introduce|present|define)[sd]?\s+(?!to\b)(?:(?:a|an|the)\s+)?"
+            rf"(?:(?!(?:to|for|of|on|in|with|by|from)\b)[\w\-]+\s+){{1,4}}\(\s*{X}\s*\)"]     # "we introduce a ... (GTD)"
+    cited = [rf"(?<![\w\-])[\w\-]+ {X}(?:\s*\([^)]{{1,60}}\))?,?\s+(BIBREF\d+)",                 # "sigmoid gating [3]"
+             rf"{X}(?:\s+{_HEAD_NOUN})?(?:\s*\([^)]{{1,60}}\))?,?\s+(BIBREF\d+)",                  # "the X model [3]"
+             rf"(BIBREF\d+),?\s+(?:subsequently\s+|first\s+)?{_INTRO}\s+(?:(?:a|an|the)\s+)?(?:[\w\-]+\s+)?{X}",
+             rf"{X},?\s+(?:first\s+|originally\s+)?(?:proposed|introduced|developed|presented)\s+(?:by|in)\b[^.]{{0,60}}?(BIBREF\d+)"]
+    for j, p in enumerate(paper.paragraphs):
+        if paper.sections[j] == "Figures and tables" or not english(p):
+            continue
+        for s in _sentences(norm_ws(p)):
+            if any(re.search(o, s, re.I) for o in ours):
+                return j, "this paper", s
+            for n, pt in enumerate(cited):
+                for m in re.finditer(pt, s, re.I):
+                    w = re.match(r"(?:BIBREF\d+[,\s]*)*([a-z]+)", s[m.end():].lstrip(", "))
+                    if n < 2 and w and (w.group(1) in _CLAIM or w.group(1).endswith("ed")):
+                        continue
+                    return j, m.group(1), s
+    return None
+
+
+def origin(reader, question):
+    """A "seen in text" answer with the paper's own source for an origin question's term, withheld if it gives none."""
+    x = origin_term(question)
+    found = cited_origin(reader.paper, x)
+    if not found:
+        return {"status": "abstain", "debug": {"question": question, "term": x, "reason": "origin: no source in the paper"}}
+    j, ph, s = found
+    name = x[:1].upper() + x[1:]
+    said = f"{name} is introduced in this paper." if ph == "this paper" else f"{name} comes from {ph}."
+    return _defined(reader, question, said, [(j, s)], {"term": x, "reason": "origin rule"}, "seen")
+
+
 def answer(reader, question):
-    """The app's entry point: overview for a general question, else Reader.ask, with the concept fallback if that
-    is withheld."""
+    """The app's entry point: overview for a general question, the citation rule for an origin question, else
+    Reader.ask, with the fallbacks if that is withheld."""
     kind = detect(question)
     if kind:
         return run(reader, question, kind)
+    if origin_term(question):
+        return origin(reader, question)
     result = reader.ask(question)
     if result["status"] == "answer" and result.get("confidence") != "low":
         return result

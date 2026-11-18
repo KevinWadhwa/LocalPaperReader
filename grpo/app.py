@@ -129,7 +129,10 @@ def build_demo(cfg, debug=False):
                 reader.index(paper, display)
         try:
             kind = overview.detect(question)                             # a general question: answered in parts
-            steps = overview_stages(reader, question, kind) if kind else ask_stages(reader, question)
+            if not kind and overview.origin_term(question):              # "Where does X come from?": no model
+                result, steps = overview.origin(reader, question), None
+            else:
+                steps = overview_stages(reader, question, kind) if kind else ask_stages(reader, question)
             x = None
             while steps:
                 for name, value in steps:                                # the same stages for both

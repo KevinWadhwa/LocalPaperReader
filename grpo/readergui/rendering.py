@@ -25,7 +25,7 @@ TAGLINE = "Answers by quoting the paper, or says it couldn't find the answer."
 NO_PAPER = "Open a PDF first."
 CONFIDENCE = {"high": "High confidence", "medium": "Medium confidence · check it against the source",
               "low": "Low confidence · a lead, not an answer",
-              "defined": "Defined in text"}
+              "defined": "Defined in text", "seen": "Seen in text"}
 
 _icon_uses = itertools.count()
 
