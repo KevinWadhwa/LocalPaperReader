@@ -31,6 +31,7 @@ BOX_LINE = ("#1E3176", "#3952AC")
 PLACEHOLDER = ("#6B6F76", "#A6A8AD")                # "Ask a question!"
 SEND_FILL = ("#2F6B4A", "#3A7F59")                  # the send button
 SEND_ARROW = ("#FFFFFF", "#FFFFFF")
+SURE = ("#C2502C", "#E0603A")                       # "Delete?" in Previously opened
 DOT = {"high": "#2F8F5B", "medium": "#E3A912", "low": "#E0603A"}    # confidence dots, both modes; "defined" and "seen" = SOURCE_FILL
 
 # ---- fonts (Manrope and Nunito Sans ship in fonts/; the others are the system's)
@@ -61,7 +62,7 @@ PAIRS = {"page": PAGE, "text": TEXT, "muted": MUTED, "line": LINE, "button": BUT
          "question-text": QUESTION_TEXT, "answer": ANSWER_FILL, "answer-text": ANSWER_TEXT, "view": VIEW_FILL,
          "view-text": VIEW_TEXT, "source": SOURCE_FILL, "source-line": SOURCE_LINE, "source-refs": SOURCE_REFS,
          "highlight": HIGHLIGHT, "oval": OVAL_FILL, "oval-text": OVAL_TEXT, "box": BOX_FILL, "box-line": BOX_LINE,
-         "placeholder": PLACEHOLDER, "send": SEND_FILL, "send-arrow": SEND_ARROW}
+         "placeholder": PLACEHOLDER, "send": SEND_FILL, "send-arrow": SEND_ARROW, "sure": SURE}
 
 
 def _b64(data):
@@ -135,17 +136,18 @@ CSS = FONTS + f"""
               background: transparent; box-shadow: none; color: var(--lpr-button); font-size: 15px; font-weight: 500; }}
 #lpr-shelf {{ position: absolute; top: {TOP_ICON + 20}px; right: 24px; z-index: 20; width: 340px; min-width: 0; max-height: 360px;
              overflow-y: auto; gap: 0; padding: 6px; border: 1px solid var(--lpr-line); border-radius: 10px; background: var(--lpr-page); }}
-.lpr-paper {{ flex-wrap: nowrap; align-items: center; gap: 6px; padding: 2px 6px 2px 2px; border-radius: 8px; }}
-.lpr-paper:hover {{ background: var(--lpr-oval); }}
+#lpr-shelf .lpr-paper {{ flex-wrap: nowrap; align-items: center; gap: 6px; min-height: 40px; padding: 0 6px 0 4px;
+                        border-radius: 8px; }}
+#lpr-shelf .lpr-paper:hover {{ background: var(--lpr-oval); }}
 .lpr-name input, .lpr-name textarea {{ padding: 6px 8px !important; border: 0 !important; border-radius: 4px !important;
             background: transparent !important; box-shadow: none !important; color: var(--lpr-text); font-size: 14px; }}
 .lpr-name input:focus, .lpr-name textarea:focus {{ background: var(--lpr-box) !important; box-shadow: 0 0 0 1.5px var(--lpr-box-line) !important; }}
-.lpr-open-one, .lpr-del {{ visibility: hidden; min-width: 0; min-height: 0; padding: 2px 8px; border-radius: 6px; box-shadow: none;
-                          font-size: {SMALL_SIZE}px; }}
-.lpr-open-one {{ border: 0; background: var(--lpr-view); color: var(--lpr-view-text); font-weight: 600; }}
-.lpr-del {{ border: 1px solid var(--lpr-line); background: transparent; color: var(--lpr-muted); }}
-.lpr-paper:hover .lpr-open-one, .lpr-paper:hover .lpr-del, .lpr-del.lpr-sure {{ visibility: visible; }}
-.lpr-del.lpr-sure {{ border-color: {DOT["low"]}; color: {DOT["low"]}; }}
+#lpr-shelf .lpr-open-one, #lpr-shelf .lpr-del {{ visibility: hidden; flex: none; min-width: 0; height: 28px; padding: 0 12px;
+            border: 1px solid var(--lpr-line); border-radius: 8px; background: var(--lpr-page); box-shadow: none;
+            color: var(--lpr-text); font-size: {SMALL_SIZE}px; font-weight: 600; }}
+#lpr-shelf .lpr-del {{ color: var(--lpr-muted); font-weight: 500; }}
+#lpr-shelf .lpr-paper:hover .lpr-open-one, #lpr-shelf .lpr-paper:hover .lpr-del, #lpr-shelf .lpr-sure {{ visibility: visible; }}
+#lpr-shelf .lpr-sure {{ border-color: var(--lpr-sure); color: var(--lpr-sure); font-weight: 600; }}
 .lpr-empty {{ padding: 10px; color: var(--lpr-muted); font-size: 14px; }}
 
 /* conversation */
