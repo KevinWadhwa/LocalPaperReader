@@ -344,7 +344,7 @@ def abbreviation(reader, question):
     return _defined(reader, question, exp, quotes, {"abbreviation": x, "reason": "spelled out in the paper"})
 
 
-_sentences = lambda t: re.split(r"(?<=[.!?])\s+", t)
+_sentences = lambda t: re.split(r"(?<=[.!?])(?<!\bal\.)\s+", t)                  # not after "et al."
 DESCRIBING_VERBS = set("""is are refers controls attenuates addresses involves denotes means describes consists measures
 computes maps scales rescales normalises normalizes represents combines converts encodes assigns estimates captures
 quantifies transforms defines determines compresses aims seeks extends generalises generalizes""".split())
@@ -413,6 +413,7 @@ _CLAIM = set("""show showed shown use used find found report reported combine co
 demonstrated suggest suggested observe observed achieve achieved apply applied employ employed train trained introduce
 introduced present presented argue argued note noted""".split())     # "BIBREF3 show ...": the citation starts a claim
 _WE, _INTRO = r"\b(?:we|this (?:paper|work|thesis))", r"(?:propose|introduce|present)[sd]?"
+BACK_REF = re.compile(r"\b(?:this|these|such)\b(?!\s+(?:paper|work|thesis|section|study|article|report|chapter|project)\b)", re.I)
 origin_term = lambda question: concept_term(question, ORIGIN_PATTERNS, digits=True)
 
 
@@ -450,9 +451,11 @@ def origin(reader, question):
     if not found:
         return {"status": "abstain", "debug": {"question": question, "term": x, "reason": "origin: no source in the paper"}}
     j, ph, s = found
-    name = x[:1].upper() + x[1:]
-    said = f"{name} is introduced in this paper." if ph == "this paper" else f"{name} comes from {ph}."
-    return _defined(reader, question, said, [(j, s)], {"term": x, "reason": "origin rule"}, "seen")
+    sentences = _sentences(norm_ws(reader.paper.paragraphs[j]))
+    i = sentences.index(s)
+    if i and BACK_REF.search(s):                                     # "... to address this": the sentence before says what
+        s = sentences[i - 1] + " " + s
+    return _defined(reader, question, s, [(j, s)], {"term": x, "reason": "origin rule", "source": ph}, "seen")
 
 
 def answer(reader, question):
