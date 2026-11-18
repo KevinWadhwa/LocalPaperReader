@@ -36,7 +36,7 @@ def pdf_url(link):
     if host in ("biorxiv.org", "medrxiv.org") and "/content/" in u.path and not u.path.endswith(".pdf"):
         p = u.path.rstrip("/").removesuffix(".full")
         return f"https://www.{host}{p}.full.pdf", p.rsplit("/", 1)[-1]
-    return link, os.path.basename(u.path).removesuffix(".pdf") or host
+    return link, urllib.parse.unquote(os.path.basename(u.path)).removesuffix(".pdf") or host
 
 
 def download(link):
