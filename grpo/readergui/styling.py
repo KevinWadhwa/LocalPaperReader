@@ -118,34 +118,33 @@ CSS = FONTS + f"""
 .lpr-top-slot {{ transform: translateX(-{(OPEN_BUTTON + 16) // 2}px); }}
 
 /* Open PDF's card: the link box looks like the question box, From device like Open PDF */
-#lpr-card {{ position: absolute; top: {TOP_ICON + 20}px; left: 24px; z-index: 20; width: 300px; min-width: 0;
+#lpr-card {{ position: absolute; top: {TOP_ICON + 20}px; left: 24px; z-index: 20; flex: none; width: 300px; min-width: 0;
             gap: 10px; padding: 14px; border: 1px solid var(--lpr-line); border-radius: 10px; background: var(--lpr-page); }}
 #lpr-link input, #lpr-link textarea {{ min-height: 44px; padding: 10px 20px !important; border: 1.5px solid var(--lpr-box-line) !important;
             border-radius: 28px !important; background: var(--lpr-box) !important; box-shadow: none !important;
             color: var(--lpr-text); font-family: {QUESTION_FONT}; font-size: {TEXT_SIZE}px; }}
 #lpr-link input::placeholder, #lpr-link textarea::placeholder {{ color: var(--lpr-placeholder); opacity: 1; }}
-#lpr-device {{ align-self: flex-start; width: auto; min-width: 0; min-height: 32px; padding: 0 12px;
+#lpr-device {{ flex: none; align-self: flex-start; width: auto; min-width: 0; min-height: 32px; padding: 0 12px;
               border: 1px solid var(--lpr-button); border-radius: 10px; background: transparent; box-shadow: none;
               color: var(--lpr-button); font-size: {SMALL_SIZE}px; font-weight: 500; }}
 
 /* Previously opened: the button looks like Open PDF, its list like Open PDF's card */
 #lpr-bar {{ position: relative; }}
-#lpr-recent {{ position: absolute; right: 24px; top: 50%; transform: translateY(-50%); width: auto; min-width: 0;
+#lpr-recent {{ position: absolute; right: 24px; top: 50%; transform: translateY(-50%); flex: none; width: auto; min-width: 0;
               min-height: 44px; padding: 0 12px; border: 1px solid var(--lpr-button); border-radius: 10px;
               background: transparent; box-shadow: none; color: var(--lpr-button); font-size: 15px; font-weight: 500; }}
-#lpr-shelf {{ position: absolute; top: {TOP_ICON + 20}px; right: 24px; z-index: 20; width: 340px; min-width: 0; max-height: 360px;
-             overflow-y: auto; gap: 0; padding: 6px; border: 1px solid var(--lpr-line); border-radius: 10px; background: var(--lpr-page); }}
-.lpr-paper {{ flex-wrap: nowrap; align-items: center; gap: 6px; padding: 2px 6px 2px 2px; border-radius: 8px; }}
+#lpr-shelf {{ position: absolute; top: {TOP_ICON + 20}px; right: 24px; z-index: 20; width: 340px; max-height: 360px;
+             overflow-y: auto; padding: 6px; border: 1px solid var(--lpr-line); border-radius: 10px; background: var(--lpr-page); }}
+.lpr-paper {{ display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; color: var(--lpr-text);
+             font-size: 14px; cursor: default; }}
 .lpr-paper:hover {{ background: var(--lpr-oval); }}
-.lpr-name input, .lpr-name textarea {{ padding: 6px 8px !important; border: 0 !important; border-radius: 4px !important;
-            background: transparent !important; box-shadow: none !important; color: var(--lpr-text); font-size: 14px; }}
-.lpr-name input:focus, .lpr-name textarea:focus {{ background: var(--lpr-box) !important; box-shadow: 0 0 0 1.5px var(--lpr-box-line) !important; }}
-.lpr-open-one, .lpr-del {{ visibility: hidden; min-width: 0; min-height: 0; padding: 2px 8px; border-radius: 6px; box-shadow: none;
-                          font-size: {SMALL_SIZE}px; }}
-.lpr-open-one {{ border: 0; background: var(--lpr-view); color: var(--lpr-view-text); font-weight: 600; }}
-.lpr-del {{ border: 1px solid var(--lpr-line); background: transparent; color: var(--lpr-muted); }}
-.lpr-paper:hover .lpr-open-one, .lpr-paper:hover .lpr-del, .lpr-del.lpr-sure {{ visibility: visible; }}
-.lpr-del.lpr-sure {{ border-color: {DOT["low"]}; color: {DOT["low"]}; }}
+.lpr-name {{ flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; outline: none; }}
+.lpr-name[contenteditable="true"] {{ white-space: normal; border-radius: 4px; background: var(--lpr-box);
+                                     box-shadow: 0 0 0 1.5px var(--lpr-box-line); }}
+.lpr-del {{ visibility: hidden; flex: none; padding: 2px 8px; border: 1px solid var(--lpr-line); border-radius: 6px;
+           background: transparent; color: var(--lpr-muted); font-size: {SMALL_SIZE}px; cursor: pointer; }}
+.lpr-paper:hover .lpr-del {{ visibility: visible; }}
+.lpr-del.lpr-sure {{ visibility: visible; border-color: {DOT["low"]}; color: {DOT["low"]}; }}
 .lpr-empty {{ padding: 10px; color: var(--lpr-muted); font-size: 14px; }}
 
 /* conversation */
