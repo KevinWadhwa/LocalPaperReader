@@ -9,6 +9,7 @@ import inspect
 import json
 import os
 import sys
+from functools import partial
 
 import gradio as gr
 
@@ -17,8 +18,8 @@ from paperfetch import download
 from qasper import overview
 from qasper.pdf_parse_v3 import parse_pdf
 from readergui import styling
-from readergui.rendering import (ASSESSING, DOWNLOADING, INDEXING, NO_PAPER, PARSING, SHELF, SHELF_JS, WRITING, header,
-                                 looking_in, oval, render, stage, start)
+from readergui.rendering import (ASSESSING, DOWNLOADING, INDEXING, NO_PAPER, PARSING, WRITING, header, looking_in,
+                                 oval, render, stage, start)
 from readergui.stages import StagedReader, ask_stages, overview_stages
 
 CAPTION = "Figures and tables"
@@ -138,27 +139,28 @@ def build_demo(cfg, debug=False):
             if os.path.exists(path):                                     # not kept: it couldn't be read
                 os.remove(path)
 
-    def rename_paper(file, name):
-        return paperstore.rename(papers, file, name)
-
-    def delete_paper(state, evt: gr.EventData):                          # Delete? confirmed in the list
-        path = os.path.join(papers, os.path.basename(evt.file))
-        open_one = state and state[2] and os.path.isfile(path) and os.stat(path).st_ino == state[2]
-        shelf_value = paperstore.delete(papers, evt.file)
-        if open_one and not os.path.exists(path):                        # the open paper is gone: back to the start screen
-            return shelf_value, None, header(), gr.update(value=[], placeholder=start())
-        return shelf_value, state, gr.update(), gr.update()
-
-    def reopen(evt: gr.EventData):
-        path = os.path.join(papers, os.path.basename(evt.file))
+    def open_kept(file):
+        """Open a paper from the list."""
+        path = os.path.join(papers, os.path.basename(file))
         if not os.path.isfile(path):
             yield None, header(summary="That paper is no longer in the folder."), gr.update()
             return
         yield from open_paper(path)
 
+    def delete_kept(file, label, state):
+        """Delete asks once (the button becomes "Delete?"). Deleting the open paper goes back to the start screen."""
+        if label != "Delete?":
+            return gr.update(value="Delete?", elem_classes=["lpr-del", "lpr-sure"]), gr.skip(), state, gr.skip(), gr.skip()
+        path = os.path.join(papers, os.path.basename(file))
+        open_one = state and state[2] and os.path.isfile(path) and os.stat(path).st_ino == state[2]
+        items = paperstore.delete(papers, file)
+        if open_one and not os.path.exists(path):                        # the open paper is gone: back to the start screen
+            return gr.skip(), items, None, header(), gr.update(value=[], placeholder=start())
+        return gr.skip(), items, state, gr.skip(), gr.skip()
+
     def shelf_click(shown):                                              # the card closes when the list opens
-        update = gr.update(visible=False) if shown else gr.update(visible=True, value=paperstore.listing(papers))
-        return not shown, update, False, gr.update(visible=False)
+        items = gr.skip() if shown else paperstore.listing(papers)
+        return not shown, gr.update(visible=not shown), items, False, gr.update(visible=False)
 
     def ask(question, history, state):
         question = (question or "").strip()
@@ -215,6 +217,7 @@ def build_demo(cfg, debug=False):
         state = gr.State(None)
         card_open = gr.State(False)
         shelf_open = gr.State(False)
+        shelf_items = gr.State([])
         with gr.Row(elem_id="lpr-bar"):                                  # the ids are styled in readergui/styling.py
             open_pdf = gr.Button("Open PDF", elem_id="lpr-open", scale=0)
             head = gr.HTML(header(), elem_id="lpr-head")
@@ -222,8 +225,23 @@ def build_demo(cfg, debug=False):
         with gr.Column(visible=False, elem_id="lpr-card") as card:       # Open PDF's card
             link = gr.Textbox(show_label=False, container=False, placeholder="Paste link", max_lines=1, elem_id="lpr-link")
             pdf = gr.UploadButton("From device", file_types=[".pdf"], type="filepath", elem_id="lpr-device", scale=0)
-        shelf = gr.HTML([], visible=False, elem_id="lpr-shelf", html_template=SHELF, js_on_load=SHELF_JS,
-                        server_functions=[rename_paper])                              # Previously opened's list
+        with gr.Column(visible=False, elem_id="lpr-shelf") as shelf:     # Previously opened's list, a row per paper
+            @gr.render(inputs=shelf_items)
+            def shelf_rows(items):
+                if not items:
+                    gr.HTML('<div class="lpr-empty">No papers yet. Papers you open are kept here.</div>')
+                for item in items:
+                    with gr.Row(elem_classes="lpr-paper"):
+                        name = gr.Textbox(item["name"], show_label=False, container=False, max_lines=1, elem_classes="lpr-name")
+                        opener = gr.Button("Open", scale=0, elem_classes="lpr-open-one")
+                        deleter = gr.Button("Delete", scale=0, elem_classes="lpr-del")
+                    rename = partial(paperstore.rename, papers, item["file"])
+                    name.submit(rename, name, shelf_items)                     # Enter or clicking away renames
+                    name.blur(rename, name, shelf_items)
+                    opener.click(close, None, [shelf_open, shelf])
+                    opener.click(partial(open_kept, item["file"]), None, [state, head, chat], show_progress="hidden")
+                    deleter.click(partial(delete_kept, item["file"]), [deleter, state],
+                                  [deleter, shelf_items, state, head, chat])
         chat = gr.Chatbot(elem_id="lpr-chat", show_label=False, container=False, scale=1, layout="bubble",
                           placeholder=start(), buttons=[], latex_delimiters=[], **chat_kwargs)
         question = gr.Textbox(elem_id="lpr-ask", show_label=False, container=False, placeholder="Ask a question!",
@@ -236,10 +254,7 @@ def build_demo(cfg, debug=False):
         close = lambda: (False, gr.update(visible=False))
         open_pdf.click(lambda o: (not o, gr.update(visible=not o), False, gr.update(visible=False)), card_open,
                        [card_open, card, shelf_open, shelf])
-        recent.click(shelf_click, shelf_open, [shelf_open, shelf, card_open, card])
-        shelf.double_click(lambda: (False, gr.update(visible=False)), None, [shelf_open, shelf])
-        shelf.double_click(reopen, None, [state, head, chat], show_progress="hidden")
-        shelf.select(delete_paper, state, [shelf, state, head, chat])
+        recent.click(shelf_click, shelf_open, [shelf_open, shelf, shelf_items, card_open, card])
         pdf.upload(close, None, [card_open, card])
         link.submit(close, None, [card_open, card])
         pdf.upload(upload, pdf, [state, head, chat], show_progress="hidden")         # the stages are the progress

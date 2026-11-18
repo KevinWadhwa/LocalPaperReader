@@ -23,51 +23,6 @@ ASSESSING = ("Retrieved the most relevant passages. Assessing whether they answe
 WRITING = ("Reasoning out the answer…", "04-teach-it")
 
 TAGLINE = "Answers by quoting the paper, or says it couldn't find the answer."
-
-# the Previously opened list: a row per paper (Handlebars escapes the names)
-SHELF = ('{{#each value}}<div class="lpr-paper" data-file="{{this.file}}"><span class="lpr-name">{{this.name}}</span>'
-         '<button class="lpr-del">Delete</button></div>'
-         '{{else}}<div class="lpr-empty">No papers yet. Papers you open are kept here.</div>{{/each}}')
-
-# double-click opens, a click on the name edits it (after a pause, so a double-click isn't an edit), Delete asks once
-SHELF_JS = """
-let timer = null;
-const file = el => el.closest('.lpr-paper').dataset.file;
-element.addEventListener('click', async e => {
-  const del = e.target.closest('.lpr-del');
-  if (del) {
-    if (del.classList.contains('lpr-sure')) trigger('select', {file: file(del)});
-    else { del.classList.add('lpr-sure'); del.textContent = 'Delete?'; }
-    return;
-  }
-  const name = e.target.closest('.lpr-name');
-  if (!name || name.isContentEditable) return;
-  clearTimeout(timer);
-  timer = setTimeout(() => edit(name), 250);
-});
-element.addEventListener('dblclick', e => {
-  clearTimeout(timer);
-  const row = e.target.closest('.lpr-paper');
-  if (row && !row.querySelector('[contenteditable="true"]')) trigger('double_click', {file: row.dataset.file});
-});
-function edit(name) {
-  const old = name.textContent;
-  let keep = true;
-  name.contentEditable = 'true';
-  name.focus();
-  getSelection().selectAllChildren(name);
-  name.onkeydown = e => {
-    if (e.key === 'Enter') { e.preventDefault(); name.blur(); }
-    if (e.key === 'Escape') { keep = false; name.blur(); }
-  };
-  name.onblur = async () => {
-    name.contentEditable = 'false';
-    const text = name.textContent.trim();
-    if (keep && text && text !== old) props.value = await server.rename_paper(file(name), text);
-    else name.textContent = old;
-  };
-}
-"""
 NO_PAPER = "Open a PDF first."
 CONFIDENCE = {"high": "High confidence", "medium": "Medium confidence · check it against the source",
               "low": "Low confidence · a lead, not an answer",
