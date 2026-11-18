@@ -31,6 +31,7 @@ BOX_LINE = ("#1E3176", "#3952AC")
 PLACEHOLDER = ("#6B6F76", "#A6A8AD")                # "Ask a question!"
 SEND_FILL = ("#2F6B4A", "#3A7F59")                  # the send button
 SEND_ARROW = ("#FFFFFF", "#FFFFFF")
+SURE = ("#C2502C", "#E0603A")                       # "Delete?" in Previously opened
 DOT = {"high": "#2F8F5B", "medium": "#E3A912", "low": "#E0603A"}    # confidence dots, both modes; "defined" and "seen" = SOURCE_FILL
 
 # ---- fonts (Manrope and Nunito Sans ship in fonts/; the others are the system's)
@@ -61,7 +62,7 @@ PAIRS = {"page": PAGE, "text": TEXT, "muted": MUTED, "line": LINE, "button": BUT
          "question-text": QUESTION_TEXT, "answer": ANSWER_FILL, "answer-text": ANSWER_TEXT, "view": VIEW_FILL,
          "view-text": VIEW_TEXT, "source": SOURCE_FILL, "source-line": SOURCE_LINE, "source-refs": SOURCE_REFS,
          "highlight": HIGHLIGHT, "oval": OVAL_FILL, "oval-text": OVAL_TEXT, "box": BOX_FILL, "box-line": BOX_LINE,
-         "placeholder": PLACEHOLDER, "send": SEND_FILL, "send-arrow": SEND_ARROW}
+         "placeholder": PLACEHOLDER, "send": SEND_FILL, "send-arrow": SEND_ARROW, "sure": SURE}
 
 
 def _b64(data):
@@ -135,16 +136,18 @@ CSS = FONTS + f"""
               background: transparent; box-shadow: none; color: var(--lpr-button); font-size: 15px; font-weight: 500; }}
 #lpr-shelf {{ position: absolute; top: {TOP_ICON + 20}px; right: 24px; z-index: 20; width: 340px; max-height: 360px;
              overflow-y: auto; padding: 6px; border: 1px solid var(--lpr-line); border-radius: 10px; background: var(--lpr-page); }}
-.lpr-paper {{ display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; color: var(--lpr-text);
-             font-size: 14px; cursor: default; }}
+.lpr-paper {{ position: relative; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px;
+             color: var(--lpr-text); font-size: 14px; cursor: default; }}
 .lpr-paper:hover {{ background: var(--lpr-oval); }}
 .lpr-name {{ flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; outline: none; }}
 .lpr-name[contenteditable="true"] {{ white-space: normal; border-radius: 4px; background: var(--lpr-box);
                                      box-shadow: 0 0 0 1.5px var(--lpr-box-line); }}
-.lpr-del {{ visibility: hidden; flex: none; padding: 2px 8px; border: 1px solid var(--lpr-line); border-radius: 6px;
-           background: transparent; color: var(--lpr-muted); font-size: {SMALL_SIZE}px; cursor: pointer; }}
-.lpr-paper:hover .lpr-del {{ visibility: visible; }}
-.lpr-del.lpr-sure {{ visibility: visible; border-color: {DOT["low"]}; color: {DOT["low"]}; }}
+.lpr-del {{ visibility: hidden; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); padding: 2px 8px;
+           border: 1px solid var(--lpr-line); border-radius: 6px; background: var(--lpr-page);
+           box-shadow: -18px 0 10px -2px var(--lpr-page); color: var(--lpr-muted); font-size: {SMALL_SIZE}px; cursor: pointer; }}
+.lpr-paper:hover .lpr-del {{ visibility: visible; box-shadow: -18px 0 10px -2px var(--lpr-oval); }}
+.lpr-del.lpr-sure {{ visibility: visible; border-color: var(--lpr-sure); color: var(--lpr-sure); font-weight: 600; }}
+.lpr-name[contenteditable="true"] + .lpr-del {{ display: none; }}
 .lpr-empty {{ padding: 10px; color: var(--lpr-muted); font-size: 14px; }}
 
 /* conversation */
