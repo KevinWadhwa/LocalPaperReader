@@ -96,14 +96,15 @@ def build_demo(cfg, debug=False):
 
     def open_paper(path, move=False):
         """Parse, keep and index the PDF at `path`, with the stages in the top bar."""
-        yield None, header(stage=PARSING), gr.update(value=[], placeholder=start())
+        yield None, header(stage=PARSING), gr.update(value=[], placeholder=start(book=False))
         try:
             paper, display = parse_pdf(path, os.path.basename(path).removesuffix(".pdf"))
         except Exception as e:                                           #bad PDF or scanned
             yield None, header(summary=f"Couldn't parse the PDF: {e}"), gr.update()
             return
+        kept = None
         try:
-            paperstore.keep(path, paper.title, papers, move)
+            kept = os.stat(paperstore.keep(path, paper.title, papers, move)).st_ino   # the file's id, kept through renames
         except OSError as e:                                             # not kept: it still opens
             print(f"paper not kept: {e}")
         yield None, header(stage=INDEXING), gr.update()
@@ -113,7 +114,7 @@ def build_demo(cfg, debug=False):
         n_sec = len(set(s for s in paper.sections if s not in ("Abstract", CAPTION)))
         n_ref = sum(ph.startswith("BIBREF") for ph in display)
         summary = f"{n_sec} sections · {len(paper.paragraphs) - n_cap} paragraphs · {n_ref} references{placeholder_note}"
-        yield (paper, display), header(paper.title or paper.paper_id, summary), gr.update(value=[], placeholder=start(book=False))
+        yield (paper, display, kept), header(paper.title or paper.paper_id, summary), gr.update(value=[], placeholder=start(book=False))
 
     def upload(path):
         if not path:
@@ -125,7 +126,7 @@ def build_demo(cfg, debug=False):
         if not (link or "").strip():
             yield gr.update(), gr.update(), gr.update()
             return
-        yield None, header(stage=DOWNLOADING), gr.update(value=[], placeholder=start())
+        yield None, header(stage=DOWNLOADING), gr.update(value=[], placeholder=start(book=False))
         try:
             path = download(link, os.path.join(papers, paperstore.INCOMING))
         except RuntimeError as e:
@@ -140,8 +141,13 @@ def build_demo(cfg, debug=False):
     def rename_paper(file, name):
         return paperstore.rename(papers, file, name)
 
-    def delete_paper(file):
-        return paperstore.delete(papers, file)
+    def delete_paper(state, evt: gr.EventData):                          # Delete? confirmed in the list
+        path = os.path.join(papers, os.path.basename(evt.file))
+        open_one = state and state[2] and os.path.isfile(path) and os.stat(path).st_ino == state[2]
+        shelf_value = paperstore.delete(papers, evt.file)
+        if open_one and not os.path.exists(path):                        # the open paper is gone: back to the start screen
+            return shelf_value, None, header(), gr.update(value=[], placeholder=start())
+        return shelf_value, state, gr.update(), gr.update()
 
     def reopen(evt: gr.EventData):
         path = os.path.join(papers, os.path.basename(evt.file))
@@ -168,7 +174,7 @@ def build_demo(cfg, debug=False):
             yield reply(oval(NO_PAPER))
             return
         yield history, "", gr.update()                                   # the question shows at once
-        paper, display = state
+        paper, display, _ = state
         if reader.paper is not paper:                                    # another session indexed a different paper
             with reader.busy:
                 reader.index(paper, display)
@@ -217,7 +223,7 @@ def build_demo(cfg, debug=False):
             link = gr.Textbox(show_label=False, container=False, placeholder="Paste link", max_lines=1, elem_id="lpr-link")
             pdf = gr.UploadButton("From device", file_types=[".pdf"], type="filepath", elem_id="lpr-device", scale=0)
         shelf = gr.HTML([], visible=False, elem_id="lpr-shelf", html_template=SHELF, js_on_load=SHELF_JS,
-                        server_functions=[rename_paper, delete_paper])                # Previously opened's list
+                        server_functions=[rename_paper])                              # Previously opened's list
         chat = gr.Chatbot(elem_id="lpr-chat", show_label=False, container=False, scale=1, layout="bubble",
                           placeholder=start(), buttons=[], latex_delimiters=[], **chat_kwargs)
         question = gr.Textbox(elem_id="lpr-ask", show_label=False, container=False, placeholder="Ask a question!",
@@ -233,6 +239,7 @@ def build_demo(cfg, debug=False):
         recent.click(shelf_click, shelf_open, [shelf_open, shelf, card_open, card])
         shelf.double_click(lambda: (False, gr.update(visible=False)), None, [shelf_open, shelf])
         shelf.double_click(reopen, None, [state, head, chat], show_progress="hidden")
+        shelf.select(delete_paper, state, [shelf, state, head, chat])
         pdf.upload(close, None, [card_open, card])
         link.submit(close, None, [card_open, card])
         pdf.upload(upload, pdf, [state, head, chat], show_progress="hidden")         # the stages are the progress

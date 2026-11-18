@@ -36,7 +36,7 @@ const file = el => el.closest('.lpr-paper').dataset.file;
 element.addEventListener('click', async e => {
   const del = e.target.closest('.lpr-del');
   if (del) {
-    if (del.classList.contains('lpr-sure')) props.value = await server.delete_paper(file(del));
+    if (del.classList.contains('lpr-sure')) trigger('select', {file: file(del)});
     else { del.classList.add('lpr-sure'); del.textContent = 'Delete?'; }
     return;
   }
@@ -138,17 +138,16 @@ def tidy(text):
 
 # ---------------------------------------------------------------------------------- top bar and start screen
 def header(title=None, summary="", stage=None):
-    """The top bar beside Open PDF: a stage message with its icon, or the open paper's title, its one-line
-    summary and the book in the middle, or (nothing open) the invitation to open one."""
+    """The top bar beside Open PDF: a stage message, or the open paper's title and its one-line summary, or a
+    message, with the book in the middle, flipping while a paper opens. With nothing opened yet, only the
+    invitation (the start screen has the large book)."""
     if stage:
-        text = f'<div class="lpr-head-stage">{html.escape(stage[0])}{icon(stage[1], "lpr-inline")}</div>'
-        book = ""
+        text = f'<div class="lpr-head-stage">{html.escape(stage[0])}</div>'
     elif title:
         text = f'<div class="lpr-title">{html.escape(title)}</div><div class="lpr-sub">{html.escape(summary)}</div>'
-        book = icon(BOOK, "lpr-top", still=True)
     else:
         text = f'<div class="lpr-sub">{html.escape(summary or "Open a PDF to start.")}</div>'
-        book = ""
+    book = icon(BOOK, "lpr-top", still=not stage) if stage or title or summary else ""     # flips while a paper opens
     return (f'<div class="lpr-head"><div class="lpr-head-text">{text}</div>'
             f'<div class="lpr-top-slot">{book}</div><div></div></div>')
 

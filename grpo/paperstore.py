@@ -9,13 +9,15 @@ from modelfetch import sha256
 GENERIC = {"main", "paper", "download", "document", "file", "full", "fulltext", "pdf", "article", "manuscript",
            "untitled", "final", "draft", "camera", "ready", "arxiv", "acl", "long", "short", "copy", "version"}
 INCOMING = ".incoming"                              # downloads wait here until kept
+RESERVED = {"con", "prn", "aux", "nul"} | {f"{d}{i}" for d in ("com", "lpt") for i in range(1, 10)}   # names Windows refuses
 
 
 def clean(name):
     """A title or link made into a file name: no characters macOS or Windows refuse, at most 120 characters."""
     name = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " - ", name)
     name = re.sub(r"\s+", " ", name).strip(" .-")
-    return name[:120].rstrip(" .-") or "paper"
+    name = name[:120].rstrip(" .-") or "paper"
+    return name + " paper" if name.lower() in RESERVED else name
 
 
 def junk(name):
@@ -67,12 +69,18 @@ def rename(folder, file, name):
         q = os.path.join(folder, stem + ".pdf")
         while os.path.exists(q) and not os.path.samefile(q, p):
             q, n = os.path.join(folder, f"{stem} ({n}).pdf"), n + 1
-        os.rename(p, q)
+        try:
+            os.rename(p, q)
+        except OSError:                                  # open in another program, or not allowed: left as it is
+            pass
     return listing(folder)
 
 
 def delete(folder, file):
     """Delete a kept paper. Returns the new listing."""
     if p := _own(folder, file):
-        os.remove(p)
+        try:
+            os.remove(p)
+        except OSError:                                  # open in another program, or not allowed: left as it is
+            pass
     return listing(folder)

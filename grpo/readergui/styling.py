@@ -42,7 +42,7 @@ SOURCE_FONT = "'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif"
 # ---- sizes, in px
 COLUMN = 760                                        # width of the conversation and the question box
 ICON = 44                                           # a stage icon
-TOP_ICON = 60                                       # the book in the top bar
+TOP_ICON = 88                                      # the book in the top bar
 START_ICON = 96                                     # the book on the start screen
 OPEN_BUTTON = 112                                   # width of Open PDF (also centres the top-bar book)
 TEXT_SIZE = 16
@@ -209,8 +209,8 @@ CSS = FONTS + f"""
                           background: var(--lpr-send) !important; color: var(--lpr-send-arrow) !important; }}
 
 @media (prefers-reduced-motion: reduce) {{
-  .lpr-icon.lpr-anim.lpr-light {{ height: 0 !important; margin: 0 !important; visibility: hidden; }}
-  .lpr-icon.lpr-anim.lpr-dark {{ height: 0 !important; margin: 0 !important; visibility: hidden; }}
+  .lpr-icon.lpr-anim.lpr-light:not(.lpr-top) {{ height: 0 !important; margin: 0 !important; visibility: hidden; }}
+  .lpr-icon.lpr-anim.lpr-dark:not(.lpr-top) {{ height: 0 !important; margin: 0 !important; visibility: hidden; }}
 }}
 """
 
