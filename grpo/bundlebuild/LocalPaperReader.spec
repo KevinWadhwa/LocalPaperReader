@@ -47,7 +47,8 @@ a = Analysis(
     module_collection_mode={"gradio": "py", "transformers": "py"},
 )
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="LocalPaperReader", console=False, upx=False)
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="LocalPaperReader", console=False, upx=False,
+          icon=os.path.join(ROOT, "icons", "LocalPaperReader.ico") if sys.platform == "win32" else None)
 coll = COLLECT(exe, a.binaries, a.datas, name="LocalPaperReader", upx=False)
 if sys.platform == "darwin":
     # icons/LocalPaperReader.icns is made on a Mac from icons/app-icon.svg (rsvg-convert, sips, iconutil)
