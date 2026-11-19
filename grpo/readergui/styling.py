@@ -153,7 +153,7 @@ CSS = FONTS + f"""
 /* See in PDF: the link and the panel */
 .lpr-see {{ display: inline-block; margin-top: 10px; color: var(--lpr-view-text) !important; font-family: {UI_FONT};
            font-size: {SMALL_SIZE}px; font-weight: 600; text-decoration: none !important; cursor: pointer; }}
-#lpr-pdf {{ position: fixed; top: 0; left: 0; width: 0; height: 0; padding: 0; margin: 0; overflow: visible; }}
+#lpr-pdf {{ position: fixed; top: 0; left: 0; z-index: 100; width: 0; height: 0; padding: 0; margin: 0; overflow: visible; }}
 .lpr-pdf-panel {{ display: none; position: fixed; top: {TOP_ICON + 21}px; right: 0; bottom: 0; z-index: 30;
                  width: min(55vw, 900px); flex-direction: column; border-left: 1px solid var(--lpr-line); background: var(--lpr-page); }}
 .lpr-pdf-open .lpr-pdf-panel {{ display: flex; }}
@@ -168,6 +168,7 @@ CSS = FONTS + f"""
                  background: transparent; color: var(--lpr-button); font-size: {SMALL_SIZE}px; font-weight: 500; cursor: pointer; }}
 .lpr-pdf-scroll {{ position: absolute; top: 52px; left: 0; right: 0; bottom: 0; overflow: auto; background: var(--lpr-oval); }}
 .lpr-pdf-scroll .textLayer .highlight {{ background-color: var(--lpr-highlight) !important; }}
+#lpr-pdf .textLayer :is(span, br) {{ color: transparent !important; }}
 
 /* conversation */
 #lpr-chat {{ border: 0 !important; background: transparent !important; box-shadow: none !important; min-height: 300px; }}

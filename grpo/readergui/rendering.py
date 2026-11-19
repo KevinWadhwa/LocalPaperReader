@@ -116,6 +116,8 @@ function go(i) {
 async function open(data) {
   const url = await server.pdf_url(data.id);
   if (!url) return;                                                  // the paper is no longer kept
+  const bar = document.getElementById('lpr-bar');
+  if (bar) element.querySelector('.lpr-pdf-panel').style.top = bar.getBoundingClientRect().bottom + 'px';
   element.classList.add('lpr-pdf-open');
   try {
     await load();
