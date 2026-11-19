@@ -130,7 +130,7 @@ async function open(data) {
     }));
     current = data.at;
     if (url === shown) { go(current); return; }
-    const doc = await lib.getDocument(url).promise;                  // pagesinit then goes to the spot
+    const doc = await lib.getDocument({url}).promise;                // pagesinit then goes to the spot
     shown = url;
     viewer.setDocument(doc);
     links.setDocument(doc);
