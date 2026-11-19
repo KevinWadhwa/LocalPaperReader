@@ -48,12 +48,14 @@ def attach(result, paper, display, file_id):
     for a in result.get("aspects") or [result]:
         if a.get("status") != "answer" or not a.get("quotes"):
             continue
-        spots, at = [], {}
+        quotes_of = {}
         for q in a["quotes"]:
-            if q["paragraph"] not in at:
-                at[q["paragraph"]] = len(spots)
-                spots.append({"label": f"Quote {len(spots) + 1}",
-                              "find": [q["quote"]] + snippets(q["quote"]) + snippets(q["paragraph"])})
+            quotes_of.setdefault(q["paragraph"], []).append(q["quote"])
+        spots, at = [], {}
+        for para, qs in quotes_of.items():                           # all of a paragraph's quotes together first
+            at[para] = len(spots)
+            spots.append({"label": f"Quote {len(spots) + 1}",
+                          "find": [qs] + [s for q in qs for s in snippets(q)] + snippets(para)})
         for idx in (a.get("debug") or {}).get("ranked", []):
             text = restore(norm_ws(paper.paragraphs[idx]), display)
             if len(spots) >= len(at) + NEXT:

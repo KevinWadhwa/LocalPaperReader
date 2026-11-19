@@ -102,7 +102,7 @@ function next() {
   const query = tries.shift();
   if (!query) { note.textContent = "Couldn't find the exact spot."; return; }
   bus.dispatch('find', {source: null, type: '', query, caseSensitive: false, entireWord: false,
-                        highlightAll: false, findPrevious: false, matchDiacritics: false});
+                        highlightAll: Array.isArray(query), findPrevious: false, matchDiacritics: false});
 }
 
 function go(i) {

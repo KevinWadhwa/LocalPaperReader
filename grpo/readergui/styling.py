@@ -151,7 +151,7 @@ CSS = FONTS + f"""
 .lpr-empty {{ padding: 10px; color: var(--lpr-muted); font-size: 14px; }}
 
 /* See in PDF: the link and the panel */
-.lpr-see {{ display: inline-block; margin-top: 10px; color: var(--lpr-view-text) !important; font-family: {UI_FONT};
+.lpr-see {{ display: block; width: fit-content; margin-top: 10px; color: var(--lpr-view-text) !important; font-family: {UI_FONT};
            font-size: {SMALL_SIZE}px; font-weight: 600; text-decoration: none !important; cursor: pointer; }}
 #lpr-pdf {{ position: fixed; top: 0; left: 0; z-index: 100; width: 0; height: 0; padding: 0; margin: 0; overflow: visible; }}
 .lpr-pdf-panel {{ display: none; position: fixed; top: {TOP_ICON + 21}px; right: 0; bottom: 0; z-index: 30;
