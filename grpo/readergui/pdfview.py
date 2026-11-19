@@ -23,7 +23,7 @@ def served(path):
 def url(folder, file_id):
     """The kept paper with this file id, found even after a rename. None if it's gone."""
     for f in os.scandir(folder):
-        if f.name.endswith(".pdf") and f.is_file() and os.stat(f.path).st_ino == file_id:
+        if f.name.endswith(".pdf") and f.is_file() and os.stat(f.path).st_ino == int(file_id):
             return served(f.path)
     return None
 
@@ -64,4 +64,4 @@ def attach(result, paper, display, file_id):
                 at[text] = len(spots)
                 spots.append({"label": paper.sections[idx].split(":::")[-1].strip() or "Passage", "find": snippets(text)})
         for q in a["quotes"]:
-            q["see"] = "#lpr-see:" + urllib.parse.quote(json.dumps({"id": file_id, "at": at[q["paragraph"]], "spots": spots}))
+            q["see"] = "#lpr-see:" + urllib.parse.quote(json.dumps({"id": str(file_id), "at": at[q["paragraph"]], "spots": spots}))
