@@ -169,6 +169,7 @@ CSS = FONTS + f"""
 .lpr-pdf-scroll {{ position: absolute; top: 52px; left: 0; right: 0; bottom: 0; overflow: auto; background: var(--lpr-oval); }}
 .lpr-pdf-scroll .textLayer .highlight {{ background-color: var(--lpr-highlight) !important; }}
 #lpr-pdf .textLayer :is(span, br) {{ color: transparent !important; }}
+#lpr-pdf .pdfViewer, #lpr-pdf .pdfViewer * {{ box-sizing: content-box; }}
 
 /* conversation */
 #lpr-chat {{ border: 0 !important; background: transparent !important; box-shadow: none !important; min-height: 300px; }}
