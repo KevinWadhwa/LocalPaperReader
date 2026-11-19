@@ -1,5 +1,4 @@
-"""A paper from a link: arXiv, OpenReview, ACL Anthology, bioRxiv/medRxiv, a direct PDF link, or a page that names
-its PDF in a citation_pdf_url tag (most journals and open-access sites)."""
+"""A paper from a link: arXiv, OpenReview, ACL Anthology, bioRxiv/medRxiv, a PDF link, or a citation_pdf_url page."""
 import html
 import os
 import re
@@ -39,8 +38,7 @@ def pdf_url(link):
 
 
 def download(link, folder):
-    """Download the paper at `link` into `folder`, where it waits to be kept, and return its path. Raises
-    RuntimeError with a message for the user."""
+    """Download the paper at `link` into `folder` and return its path. Errors are RuntimeErrors for the user."""
     url, name = pdf_url(link)
     for _ in range(2):                                                   # a page, then the PDF it names
         host = urllib.parse.urlparse(url).netloc

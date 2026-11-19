@@ -1,5 +1,4 @@
-"""The app's own copy of every paper opened. The folder is the list: a paper's name is its file name, and the
-file's date is when it was last opened."""
+"""The app's copy of every paper opened. File name is the paper's name, file date when it was last opened."""
 import os
 import re
 import shutil
@@ -26,9 +25,8 @@ def junk(name):
 
 
 def keep(path, title, folder, move=False):
-    """Copy the PDF at `path` into `folder` unless the same paper is already there. Returns the kept copy's path.
-    A junk file name is replaced by the title. The kept copy becomes the newest. `move`: a download, moved in,
-    or deleted when the paper is already kept."""
+    """Keep the PDF in `folder` (moved if `move`) unless already there, named by its title if its name is junk.
+    Returns the kept path."""
     os.makedirs(folder, exist_ok=True)
     size, digest = os.path.getsize(path), None
     for f in os.listdir(folder):
