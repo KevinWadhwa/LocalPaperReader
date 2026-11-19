@@ -68,6 +68,84 @@ function edit(name) {
   };
 }
 """
+
+# See in PDF's panel: chips, note, Close and the PDF
+PDF_PANEL = ('<div class="lpr-pdf-panel"><div class="lpr-pdf-bar"><div class="lpr-pdf-jumps"></div>'
+             '<span class="lpr-pdf-note"></span><button class="lpr-pdf-close">Close</button></div>'
+             '<div class="lpr-pdf-scroll"><div class="pdfViewer"></div></div></div>')
+
+# loads PDF.js once, then tries each spot's searches in turn
+PDF_JS = """
+const base = props.pdfjs;
+const scroll = element.querySelector('.lpr-pdf-scroll');
+const jumps = element.querySelector('.lpr-pdf-jumps');
+const note = element.querySelector('.lpr-pdf-note');
+let lib = null, viewer, bus, links, shown = null, spots = [], current = 0, tries = [];
+
+async function load() {
+  if (lib) return;
+  const pdfjs = await import(base + '/pdf.min.mjs');
+  pdfjs.GlobalWorkerOptions.workerSrc = base + '/pdf.worker.min.mjs';
+  globalThis.pdfjsLib = pdfjs;
+  const v = await import(base + '/pdf_viewer.mjs');
+  bus = new v.EventBus();
+  links = new v.PDFLinkService({eventBus: bus});
+  const finder = new v.PDFFindController({eventBus: bus, linkService: links});
+  viewer = new v.PDFViewer({container: scroll, eventBus: bus, linkService: links, findController: finder});
+  links.setViewer(viewer);
+  bus.on('pagesinit', () => { viewer.currentScaleValue = 'page-width'; go(current); });
+  bus.on('updatefindcontrolstate', e => { if (e.state === 1) next(); });     // 1: not found, try the next stretch
+  lib = pdfjs;                                                       // ready only once both parts loaded
+}
+
+function next() {
+  const query = tries.shift();
+  if (!query) { note.textContent = "Couldn't find the exact spot."; return; }
+  bus.dispatch('find', {source: null, type: '', query, caseSensitive: false, entireWord: false,
+                        highlightAll: false, findPrevious: false, matchDiacritics: false});
+}
+
+function go(i) {
+  current = i;
+  tries = [...spots[i].find];
+  note.textContent = '';
+  jumps.querySelectorAll('button').forEach((b, k) => b.classList.toggle('lpr-on', k === i));
+  next();
+}
+
+async function open(data) {
+  const url = await server.pdf_url(data.id);
+  if (!url) return;                                                  // the paper is no longer kept
+  element.classList.add('lpr-pdf-open');
+  try {
+    await load();
+    spots = data.spots;
+    jumps.replaceChildren(...spots.map((s, k) => {
+      const b = document.createElement('button');
+      b.textContent = s.label;
+      b.onclick = () => go(k);
+      return b;
+    }));
+    current = data.at;
+    if (url === shown) { go(current); return; }
+    const doc = await lib.getDocument(url).promise;                  // pagesinit then goes to the spot
+    shown = url;
+    viewer.setDocument(doc);
+    links.setDocument(doc);
+  } catch (e) {
+    note.textContent = "Couldn't open the PDF.";
+  }
+}
+
+document.addEventListener('click', e => {
+  const a = e.target.closest('a.lpr-see');
+  if (!a) return;
+  e.preventDefault();
+  e.stopPropagation();
+  open(JSON.parse(decodeURIComponent(a.getAttribute('href').slice('#lpr-see:'.length))));
+}, true);
+element.querySelector('.lpr-pdf-close').onclick = () => element.classList.remove('lpr-pdf-open');
+"""
 NO_PAPER = "Open a PDF first."
 CONFIDENCE = {"high": "High confidence", "medium": "Medium confidence · check it against the source",
               "low": "Low confidence · a lead, not an answer",
@@ -138,9 +216,8 @@ def tidy(text):
 
 # ---------------------------------------------------------------------------------- top bar and start screen
 def header(title=None, summary="", stage=None):
-    """The top bar beside Open PDF: a stage message, or the open paper's title and its one-line summary, or a
-    message, with the book in the middle, flipping while a paper opens. With nothing opened yet, only the
-    invitation (the start screen has the large book)."""
+    """The top bar: a stage, the title and summary, or a message, with the book in the middle (flipping while a
+    paper opens, absent before the first)."""
     if stage:
         text = f'<div class="lpr-head-stage">{html.escape(stage[0])}</div>'
     elif title:
@@ -185,14 +262,15 @@ def _sources(quotes, refs):
     paragraphs = {}                                 # paragraph text -> [section, marked spans, references]
     for q, cited in zip(quotes, refs):
         text = q["before"] + q["quote"] + q["after"]
-        entry = paragraphs.setdefault(text, [(q["section"] or "").split(":::")[-1].strip() or "Unnamed section", [], []])
+        entry = paragraphs.setdefault(text, [(q["section"] or "").split(":::")[-1].strip() or "Unnamed section", [], [],
+                                             q.get("see")])
         entry[1].append((len(q["before"]), len(q["before"]) + len(q["quote"])))
         entry[2] += cited
     if not paragraphs:
         return ""
     names = list(dict.fromkeys(e[0] for e in paragraphs.values()))
     out = ""
-    for text, (section, spans, cited) in paragraphs.items():
+    for text, (section, spans, cited, see) in paragraphs.items():
         marked, last = "", 0
         for start, end in sorted(spans):            # overlapping quotes become one mark
             if start >= last:
@@ -203,7 +281,8 @@ def _sources(quotes, refs):
         label = f'<div class="lpr-para-sec">{html.escape(section)}</div>' if len(paragraphs) > 1 else ""
         cited = "".join(f"<div>{html.escape(r['reference'] or r['cited_as'])}</div>" for r in cited)
         cited = f'<div class="lpr-refs">{cited}</div>' if cited else ""
-        out += f'<div class="lpr-para">{label}{tidy(marked + text[last:])}{cited}</div>'
+        see = f'<a class="lpr-see" href="{html.escape(see)}">See in PDF</a>' if see else ""
+        out += f'<div class="lpr-para">{label}{tidy(marked + text[last:])}{cited}{see}</div>'
     return (f'<details class="lpr-src"><summary><span class="lpr-view">View source</span>'
             f'<span>{html.escape(" · ".join(names))}</span></summary>{out}</details>')
 

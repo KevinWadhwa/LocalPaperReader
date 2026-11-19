@@ -18,6 +18,7 @@ datas = [(os.path.join(ROOT, src), dst) for src, dst in (
     ("configs/reader_4b_gguf.json", "configs"),
     ("icons", "icons"),
     ("readergui/fonts", "readergui/fonts"),
+    ("readergui/pdfjs", "readergui/pdfjs"),
     ("runs/tokenizer_4b", "runs/tokenizer_4b"),
     ("runs/embedder_onnx", "runs/embedder_onnx"),
 )]

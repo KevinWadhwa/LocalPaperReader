@@ -480,7 +480,7 @@ class Reader:
         confidence = self.confidence(score)
         debug = {"reason": None, "abstain_score": lp, "verifier_score": score, "tiers": self.tiers, "outcome": None,
                  "confidence": None, "raw_output": None, "repaired": None, "context": context, "p_to_idx": p_to_idx,
-                 "n_prompt_tokens": len(self.tok(prompt)["input_ids"])}
+                 "n_prompt_tokens": len(self.tok(prompt)["input_ids"]), "ranked": list(ranked)}
 
         def abstain(reason, outcome):
             debug["reason"], debug["outcome"] = reason, outcome

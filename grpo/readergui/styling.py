@@ -150,6 +150,25 @@ CSS = FONTS + f"""
 .lpr-name[contenteditable="true"] + .lpr-del {{ display: none; }}
 .lpr-empty {{ padding: 10px; color: var(--lpr-muted); font-size: 14px; }}
 
+/* See in PDF: the link and the panel */
+.lpr-see {{ display: inline-block; margin-top: 10px; color: var(--lpr-view-text) !important; font-family: {UI_FONT};
+           font-size: {SMALL_SIZE}px; font-weight: 600; text-decoration: none !important; cursor: pointer; }}
+#lpr-pdf {{ position: fixed; top: 0; left: 0; width: 0; height: 0; padding: 0; margin: 0; overflow: visible; }}
+.lpr-pdf-panel {{ display: none; position: fixed; top: {TOP_ICON + 21}px; right: 0; bottom: 0; z-index: 30;
+                 width: min(55vw, 900px); flex-direction: column; border-left: 1px solid var(--lpr-line); background: var(--lpr-page); }}
+.lpr-pdf-open .lpr-pdf-panel {{ display: flex; }}
+.lpr-pdf-bar {{ display: flex; align-items: center; gap: 8px; height: 52px; padding: 0 14px; box-sizing: border-box;
+               border-bottom: 1px solid var(--lpr-line); }}
+.lpr-pdf-jumps {{ display: flex; flex: 1 1 auto; gap: 6px; min-width: 0; overflow-x: auto; }}
+.lpr-pdf-jumps button {{ flex: none; padding: 4px 10px; border: 1px solid var(--lpr-line); border-radius: 10px; background: transparent;
+                        color: var(--lpr-text); font-size: {SMALL_SIZE}px; white-space: nowrap; cursor: pointer; }}
+.lpr-pdf-jumps button.lpr-on {{ border-color: transparent; background: var(--lpr-view); color: var(--lpr-view-text); font-weight: 600; }}
+.lpr-pdf-note {{ flex: none; color: var(--lpr-muted); font-size: {SMALL_SIZE}px; }}
+.lpr-pdf-close {{ flex: none; min-height: 32px; padding: 0 12px; border: 1px solid var(--lpr-button); border-radius: 10px;
+                 background: transparent; color: var(--lpr-button); font-size: {SMALL_SIZE}px; font-weight: 500; cursor: pointer; }}
+.lpr-pdf-scroll {{ position: absolute; top: 52px; left: 0; right: 0; bottom: 0; overflow: auto; background: var(--lpr-oval); }}
+.lpr-pdf-scroll .textLayer .highlight {{ background-color: var(--lpr-highlight) !important; }}
+
 /* conversation */
 #lpr-chat {{ border: 0 !important; background: transparent !important; box-shadow: none !important; min-height: 300px; }}
 #lpr-chat .bubble-wrap {{ background: transparent !important; }}

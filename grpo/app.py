@@ -16,9 +16,9 @@ import paperstore
 from paperfetch import download
 from qasper import overview
 from qasper.pdf_parse_v3 import parse_pdf
-from readergui import styling
-from readergui.rendering import (ASSESSING, DOWNLOADING, INDEXING, NO_PAPER, PARSING, SHELF, SHELF_JS, WRITING, header,
-                                 looking_in, oval, render, stage, start)
+from readergui import pdfview, styling
+from readergui.rendering import (ASSESSING, DOWNLOADING, INDEXING, NO_PAPER, PARSING, PDF_JS, PDF_PANEL, SHELF, SHELF_JS,
+                                 WRITING, header, looking_in, oval, render, stage, start)
 from readergui.stages import StagedReader, ask_stages, overview_stages
 
 CAPTION = "Figures and tables"
@@ -93,6 +93,7 @@ def build_demo(cfg, debug=False):
                         if cfg.get("tiers_placeholder") else "")
 
     papers = os.path.join(data_dir(), "papers")
+    gr.set_static_paths([papers, pdfview.PDFJS])                         # See in PDF reads both
 
     def open_paper(path, move=False):
         """Parse, keep and index the PDF at `path`, with the stages in the top bar."""
@@ -138,6 +139,9 @@ def build_demo(cfg, debug=False):
             if os.path.exists(path):                                     # not kept: it couldn't be read
                 os.remove(path)
 
+    def pdf_url(file_id):
+        return pdfview.url(papers, file_id)
+
     def rename_paper(file, name):
         return paperstore.rename(papers, file, name)
 
@@ -174,7 +178,7 @@ def build_demo(cfg, debug=False):
             yield reply(oval(NO_PAPER))
             return
         yield history, "", gr.update()                                   # the question shows at once
-        paper, display, _ = state
+        paper, display, kept = state
         if reader.paper is not paper:                                    # another session indexed a different paper
             with reader.busy:
                 reader.index(paper, display)
@@ -207,6 +211,7 @@ def build_demo(cfg, debug=False):
                         steps = x and overview_stages(reader, question, "concept", x)
         except Exception as e:                                           # one message for every failure
             result = {"status": "abstain", "debug": {"reason": f"error: {type(e).__name__}: {e}"}}
+        pdfview.attach(result, paper, display, kept)
         debug = json.loads(json.dumps(result["debug"]))                  # gr.JSON needs str keys (p_to_idx)
         yield history + [{"role": "assistant", "content": render(result)}], "", debug
 
@@ -232,6 +237,9 @@ def build_demo(cfg, debug=False):
         if debug:
             show_debug = gr.Checkbox(label="debug", value=False)
             show_debug.change(lambda on: gr.update(visible=on), show_debug, debug_json)
+        gr.HTML("", elem_id="lpr-pdf", html_template=PDF_PANEL, js_on_load=PDF_JS, server_functions=[pdf_url],
+                pdfjs=pdfview.served(pdfview.PDFJS),
+                head=f'<link rel="stylesheet" href="{pdfview.served(os.path.join(pdfview.PDFJS, "pdf_viewer.css"))}">')
 
         close = lambda: (False, gr.update(visible=False))
         open_pdf.click(lambda o: (not o, gr.update(visible=not o), False, gr.update(visible=False)), card_open,
