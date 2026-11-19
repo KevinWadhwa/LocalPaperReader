@@ -142,8 +142,8 @@ def build_demo(cfg, debug=False):
     def pdf_url(file_id):
         return pdfview.url(papers, file_id)
 
-    def rename_paper(file, name):
-        return paperstore.rename(papers, file, name)
+    def rename_paper(change):
+        return paperstore.rename(papers, change["file"], change["name"])
 
     def delete_paper(state, evt: gr.EventData):                          # Delete? confirmed in the list
         path = os.path.join(papers, os.path.basename(evt.file))

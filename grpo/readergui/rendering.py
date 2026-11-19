@@ -63,7 +63,8 @@ function edit(name) {
   name.onblur = async () => {
     name.contentEditable = 'false';
     const text = name.textContent.trim();
-    if (keep && text && text !== old) props.value = await server.rename_paper(file(name), text);
+    const files = keep && text && text !== old ? await server.rename_paper({file: file(name), name: text}) : null;
+    if (files) props.value = files;
     else name.textContent = old;
   };
 }
