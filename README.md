@@ -55,7 +55,7 @@ You'll need an Apple Silicon Mac (M1 or newer), or a 64-bit Windows 11 PC with u
 AMD or NVIDIA), and about 3 GB of free disk space.
 
 Something not working, or got an idea? [Open an issue](https://github.com/KevinWadhwa/LocalPaperReader/issues) or
-email me at [your-email-here]. I'd genuinely love to hear how it goes.
+email me. I'd genuinely love to hear any feedback.
 
 ## What you can do
 
