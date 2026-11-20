@@ -8,7 +8,7 @@
 <h1 align="center">LocalPaperReader</h1>
 
 <p align="center">Ask questions about a research paper and get answers quoted straight from it, or an honest "I couldn't find that".<br>
-Runs entirely on your Mac. No internet, no account, nothing leaves your computer.</p>
+Runs entirely on your computer. No internet, no account, nothing leaves your device.</p>
 
 ---
 
@@ -25,6 +25,8 @@ you can check it yourself in a second.
 
 ## Getting started
 
+### On a Mac
+
 1. Download LocalPaperReader.dmg from the [latest release](https://github.com/KevinWadhwa/LocalPaperReader/releases/latest).
 2. Open it and drag LocalPaperReader into Applications.
 3. The first time you open it, macOS will say it "could not verify LocalPaperReader is free of malware". That's
@@ -34,14 +36,34 @@ you can check it yourself in a second.
    ```
    xattr -dr com.apple.quarantine /Applications/LocalPaperReader.app
    ```
+
+### On Windows
+
+1. Download LocalPaperReader-Windows.zip from the [latest release](https://github.com/KevinWadhwa/LocalPaperReader/releases/latest) and unzip it somewhere you'll keep it,
+   such as Documents.
+2. Open the folder and double-click LocalPaperReader.exe.
+3. The first time, Windows may show "Windows protected your PC". That's only because the app isn't signed yet.
+   Click More info, then Run anyway. You only need to do this once.
+
+### Then, on either
+
 4. On first launch it downloads the model (about 2.6 GB, once). After that it works fully offline.
 5. Drop in a PDF or its link, wait a moment while it reads the paper, and ask away. Try specific questions ("Which datasets did
    they use?") or general ones ("What are the main results?", "What are the limitations?").
 
-You'll need an Apple Silicon Mac (M1 or newer) and about 3 GB of free disk space. A Windows version is coming soon.
+You'll need an Apple Silicon Mac (M1 or newer), or a 64-bit Windows 11 PC with up-to-date graphics drivers (Intel,
+AMD or NVIDIA), and about 3 GB of free disk space.
 
 Something not working, or got an idea? [Open an issue](https://github.com/KevinWadhwa/LocalPaperReader/issues) or
 email me at [your-email-here]. I'd genuinely love to hear how it goes.
+
+## What you can do
+
+- Open a paper from your computer, or paste a link to it from any free-access journal host, or a direct PDF link.
+- Every paper you open is kept in Previously opened, at the top right. Double-click one to open it again, or click
+  its name to rename it.
+- Under each answer, View source shows the paragraph it quotes. See in PDF then opens the paper beside the
+  answer, scrolled to the quote and highlighted, with shortcuts to the other passages it found relevant.
 
 ## What's going on inside
 
@@ -64,15 +86,14 @@ work, from retrieval right through to training and squeezing a model onto a lapt
 - **Quote checking.** Every quote must appear verbatim in the paper and point to the right paragraph, otherwise
   the answer is withheld.
 - **Quantisation.** The model is compressed to 4-bit GGUF (`Q4_K_M`) and runs with llama.cpp on the Mac's GPU
-  (Metal). The fine-tuned behaviour is a small LoRA file switched on and off at runtime, so one model does both
-  jobs.
+  (Metal), or on Windows through Vulkan. The fine-tuned behaviour is a small LoRA file switched on and off at
+  runtime, so one model does both jobs.
 
 ## Runs on your laptop
 
 All of this is done with a model of just 4 billion parameters, small enough to run on an ordinary laptop instead
 of a data centre. Everything happens on your machine, completely offline once the model is downloaded. It
-typically uses about 3 GB of RAM and is quick to answer, and a general "overview" question takes a little longer
-because it's answered as a few smaller questions.
+typically uses about 2 GB of RAM and is quick to answer.
 
 A couple of honest limits: it was trained on NLP papers, so it's at its best on those (though other fields work
 too). Like any model it can still be confidently wrong, which is exactly why every answer shows its quotes. A low
