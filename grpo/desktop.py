@@ -72,6 +72,16 @@ def page():
         out = out.replace(mark, "data:image/svg+xml;base64," + base64.b64encode(svg).decode())
     return out
 
+def unblock():
+    """Windows: clear the downloaded-file mark on the bundle's DLLs, which .NET won't load otherwise."""
+    for root, _, files in os.walk(APP_DIR):
+        for f in files:
+            if f.lower().endswith(".dll"):
+                try:
+                    os.remove(os.path.join(root, f) + ":Zone.Identifier")
+                except OSError:                             # no mark, or a read-only folder
+                    pass
+
 
 class Api:
     """What the loading page can call. pywebview exposes public methods only, hence the underscore."""
@@ -136,8 +146,11 @@ def main():
             os.makedirs(app.data_dir(), exist_ok=True)
             sys.stdout = sys.stderr = open(os.path.join(app.data_dir(), "app.log"), "a", buffering=1)
         return app.main()
+    if os.name == "nt" and getattr(sys, "frozen", False):          # a downloaded Windows build
+        unblock()
     api = Api()
     window = webview.create_window("LocalPaperReader", html=page(), js_api=api, width=1100, height=900,
+
                                    min_size=(720, 600))
     webview.start(startup, (window, api))           # returns when the window is closed
     os._exit(0)                                     # stop the server and model threads with it
